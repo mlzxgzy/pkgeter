@@ -7,14 +7,11 @@ import shlex
 import sys
 
 # Enable readline-based TAB completion.
-# On Windows, install 'pyreadline3' for completion support.
+# pyreadline3 is required on Windows; readline is built-in on Unix/macOS.
 try:
-    import readline  # noqa: F401  — Unix / macOS / pyreadline3
+    import readline  # noqa: F401
 except ImportError:
-    try:
-        import pyreadline3  # noqa: F401
-    except ImportError:
-        pass
+    import pyreadline3  # noqa: F401  # Windows
 
 
 class PkgeterREPL(cmd.Cmd):
@@ -92,25 +89,48 @@ class PkgeterREPL(cmd.Cmd):
 
     def complete_repo(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
         actions = ["list", "add", "remove"]
-        parts = shlex.split(line)
-        # completing action (2nd word)
-        if len(parts) <= 2:
+        parsed = shlex.split(line)
+        # If we only have 1 word, or 2 words without a trailing space,
+        # we're completing the action.
+        if len(parsed) <= 1 or (len(parsed) == 2 and not line.rstrip().endswith(parsed[1] + " ")):
+            # Actually simpler: check if we're past the 2nd word
+            pass
+        # Use word count: past the end means past action
+        words = len(parsed)
+        trailing = line.endswith(" ")
+        if words == 1 or (words == 2 and not trailing):
             return [a for a in actions if a.startswith(text)]
         return []
 
     # ---- TAB completion: preset ----
 
     def complete_preset(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
-        parts = shlex.split(line)
-        words = len(parts)
-        # completing action (2nd word)
-        if words <= 2:
+        parsed = shlex.split(line)
+        words = len(parsed)
+        trailing = line.endswith(" ")
+
+        # Completing action — 1 word, or 2 words with active word being typed
+        if words == 1 or (words == 2 and not trailing):
             return [a for a in ["list", "apply"] if a.startswith(text)]
-        # completing preset name after "apply"
-        if words >= 3 and parts[1] in ("apply", "a"):
-            from pkgeter.preset import list_presets
-            return sorted(p for p in list_presets() if p.startswith(text))
+
+        # Completing preset name after "apply"
+        if words >= 2:
+            # Resolve action with prefix matching
+            action = self._resolve_action(parsed[1], ["apply"])
+            if action == "apply":
+                from pkgeter.preset import list_presets
+                return sorted(p for p in list_presets() if p.startswith(text))
+
         return []
+
+    # ---- TAB completion: repo arg completer (for remove) ----
+
+    @staticmethod
+    def _resolve_action(cmd: str, actions: list[str]) -> str | None:
+        candidates = [a for a in actions if a.startswith(cmd)]
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
 
     # ---- help ----
 
@@ -137,10 +157,4 @@ class PkgeterREPL(cmd.Cmd):
 
 
 def run_repl() -> None:
-    if "readline" not in sys.modules and "pyreadline3" not in sys.modules:
-        print(
-            "Tip: install 'pyreadline3' for TAB completion:\n"
-            "  pip install pkgeter[readline]\n",
-            file=sys.stderr,
-        )
     PkgeterREPL().cmdloop()

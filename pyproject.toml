@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
     "httpx>=0.25",
     "pyyaml>=6.0",
+    "pyreadline3; sys_platform == 'win32'",
 ]
 
 [project.urls]
@@ -42,4 +43,3 @@ testpaths = ["tests"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-readline = ["pyreadline3"]
