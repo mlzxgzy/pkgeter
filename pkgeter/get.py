@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -128,7 +131,10 @@ def run_get(argv: list[str]) -> int:
     parser.add_argument("--distro")
     parser.add_argument("--release", "-r")
     parser.add_argument("--arch", "-a")
-    parser.add_argument("--mirror", "-m", action="append", dest="mirrors")
+    parser.add_argument("--mirror", "-m", help="Mirror variant (default, cn, etc.)")
+    parser.add_argument("--cn", action="store_true", help="Shortcut for --mirror cn")
+    parser.add_argument("--force-update", action="store_true", help="Force cache refresh")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose/debug output")
     parser.add_argument("--output", "-o", type=Path, default=Path("./output"))
     parser.add_argument("--config", type=Path, default=None)
     try:
@@ -136,33 +142,54 @@ def run_get(argv: list[str]) -> int:
     except SystemExit:
         return 1
 
+    if args.verbose:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(levelname)s: %(message)s",
+            force=True,
+        )
+        logger.debug("Verbose mode enabled")
+
     packages = args.packages or args.opt_packages
     if not packages:
         print("Error: specify packages to get", file=sys.stderr)
         return 1
     config = Config(args.config)
+    logger.debug("Config loaded from: %s", config.path)
     arch = args.arch or config.get("arch", "amd64")
+    logger.debug("Architecture: %s", arch)
+    mirror_variant = args.mirror or config.get_mirror_variant()
+    if args.cn:
+        mirror_variant = "cn"
+    logger.debug("Mirror variant: %s", mirror_variant)
 
     # Determine repos and backend
     if args.distro:
         from pkgeter.preset import get_preset
-        preset = get_preset(args.distro)
+        preset = get_preset(args.distro, mirror_variant=mirror_variant)
         if not preset:
             print(f"Error: unknown preset '{args.distro}'", file=sys.stderr)
             return 1
         repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
         backend_name = preset["backend"]
         arch = preset.get("arch", arch)
+        logger.debug("Using preset: %s (backend=%s, repos=%d)", args.distro, backend_name, len(repos))
     else:
         repos_dicts = config.get_repos()
         if not repos_dicts:
             from pkgeter.preset import get_preset
-            preset = get_preset("debian-bookworm")
+            preset = get_preset("debian-bookworm", mirror_variant=mirror_variant)
             repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
             backend_name = preset["backend"]
+            logger.debug("No repos in config, falling back to preset: debian-bookworm")
         else:
             repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in repos_dicts]
             backend_name = config.get_backend()
+            logger.debug("Using repos from config (backend=%s)", backend_name)
+
+    logger.debug("Repos:")
+    for r in repos:
+        logger.debug("  %s  (%s, %s)", r.url, r.release, r.arch or arch)
 
     # Instantiate backend
     if backend_name in ("apt", "debian"):  # "debian" for backward compat
@@ -177,43 +204,53 @@ def run_get(argv: list[str]) -> int:
     else:
         print(f"Error: unknown backend '{backend_name}'", file=sys.stderr)
         return 1
+    logger.debug("Backend: %s", type(backend).__name__)
 
     # Download package DB
     print("Downloading package database...")
-    package_db = backend.download_package_db(repos, arch)
+    logger.debug("force_update=%s", args.force_update)
+    package_db = backend.download_package_db(repos, arch, force_update=args.force_update)
     if not package_db:
         print("Error: no packages found from any repo", file=sys.stderr)
         return 1
-    print(f"Found {len(package_db)} packages")
+    logger.debug("Package DB loaded: %d packages", len(package_db))
 
     # Resolve dependencies
     print("Resolving dependencies...")
+    def _resolve_virtual(name: str, providers: list[str]) -> str:
+        if len(providers) == 1:
+            print(f"Virtual package '{name}' is provided by '{providers[0]}'")
+            return providers[0]
+        if sys.stdin.isatty():
+            return resolve_virtual_interactive(name, providers, package_db)
+        return providers[0]
+
     resolver = Resolver(
         all_pkgs=package_db,
         installed=set(),
-        virtual_callback=(
-            lambda v, p: resolve_virtual_interactive(v, p, package_db)
-            if sys.stdin.isatty()
-            else p[0]
-        ),
+        virtual_callback=_resolve_virtual,
     )
     needed = resolver.resolve(packages)
+    logger.debug("Packages requested: %s", packages)
+    logger.debug("Packages to download: %s", needed)
     print(f"Need to download {len(needed)} packages")
 
-    # Build download info
+    # Build download info with per-package URLs
     download_dir = args.output / ".downloads"
-    repo_url = repos[0].url
     downloader = Downloader(
-        mirror=repo_url,
+        mirror="",
         dest_dir=download_dir,
         progress_callback=lambda name, done, total: print(
             f"  [{done}/{total}] {name}"
         ),
     )
+    logger.debug("Download destination: %s", download_dir)
     pkg_info = {}
     for name in needed:
         info = package_db[name]
-        pkg_info[name] = (info.filename, info.sha256, info.size)
+        url = backend.build_download_url(info.base_url or repos[0].url, info)
+        pkg_info[name] = (url, info.sha256, info.size)
+        logger.debug("  %s -> %s", name, url)
 
     downloaded = downloader.download_all(pkg_info)
     files = [downloaded[name].name for name in needed]
@@ -226,6 +263,7 @@ def run_get(argv: list[str]) -> int:
     else:
         from pkgeter.output.rpm_directory import RpmDirectoryOutput
         fmt = RpmDirectoryOutput()
+    logger.debug("Output format: %s", type(fmt).__name__)
     result = fmt.execute(
         deb_files=downloaded,
         install_script=install_script,
@@ -233,5 +271,11 @@ def run_get(argv: list[str]) -> int:
         arch=arch,
         output_dir=args.output,
     )
+    # Save mirror_variant choice and preset name to config
+    config.set_mirror_variant(mirror_variant)
+    if args.distro:
+        config.set_preset_name(args.distro)
+    config.save()
+
     print(f"Output written to: {result}")
     return 0

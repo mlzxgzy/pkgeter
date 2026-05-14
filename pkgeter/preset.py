@@ -70,6 +70,7 @@ def _load_presets() -> dict[str, Any]:
             "backend": data.get("backend", ""),
             "arch": data.get("arch", ""),
             "repos": repos,
+            "mirrors": data.get("mirrors"),
         }
 
     _PRESETS_CACHE = presets
@@ -92,9 +93,45 @@ def list_presets() -> list[str]:
     return sorted(_load_presets().keys())
 
 
-def get_preset(name: str) -> dict | None:
-    """Return the preset dict for *name*, or ``None`` if unknown."""
-    return _load_presets().get(name)
+def get_preset(name: str, mirror_variant: str = "default") -> dict | None:
+    """Return the preset dict for *name*, or ``None`` if unknown.
+
+    If the preset defines a ``mirrors`` map and *mirror_variant* is
+    present inside it the variant's repos are used.  When the variant
+    is unknown a warning is printed and the ``default`` variant is used
+    as fallback.
+    """
+    raw = _load_presets().get(name)
+    if raw is None:
+        return None
+
+    preset = {
+        "backend": raw["backend"],
+        "arch": raw.get("arch", ""),
+        "repos": raw.get("repos", []),
+    }
+
+    mirrors: dict | None = raw.get("mirrors")
+    if mirrors:
+        if mirror_variant in mirrors:
+            variant = mirrors[mirror_variant]
+            preset["repos"] = [RepoConfig.from_dict(r) for r in variant.get("repos", [])]
+        elif mirror_variant != "default":
+            print(
+                f"Warning: mirror variant '{mirror_variant}' not found "
+                f"in preset '{name}', falling back to 'default'",
+                file=sys.stderr,
+            )
+            # default variant inside mirrors takes precedence over top-level repos
+            if "default" in mirrors:
+                preset["repos"] = [RepoConfig.from_dict(r) for r in mirrors["default"].get("repos", [])]
+        else:
+            # mirror_variant == "default" but mirrors dict exists —
+            # use default variant from mirrors if present, else top-level repos
+            if "default" in mirrors:
+                preset["repos"] = [RepoConfig.from_dict(r) for r in mirrors["default"].get("repos", [])]
+
+    return preset
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +179,8 @@ def run_preset(argv: list[str] | None = None) -> None:
         cfg = Config()
         cfg.set_backend(preset["backend"])
         cfg.set_repos([r.to_dict() for r in preset["repos"]])
+        cfg.set_mirror_variant("default")
+        cfg.set_preset_name(args.name)
         cfg.save()
         print(f"Applied preset {args.name!r} (backend: {preset['backend']}, "
               f"arch: {preset['arch']}, repos: {len(preset['repos'])})")

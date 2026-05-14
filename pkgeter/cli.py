@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import sys
 
-COMMANDS = {"get": "get", "repo": "repo", "preset": "preset", "help": "help", "exit": "exit"}
-_ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo"}
+COMMANDS = {"get": "get", "repo": "repo", "preset": "preset", "search": "search", "help": "help", "exit": "exit"}
+_ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo", "s": "search"}
 
 
 def _resolve(cmd: str) -> str | None:
@@ -62,9 +62,12 @@ def run_cli() -> None:
     elif resolved == "preset":
         from pkgeter.preset import run_preset
         sys.exit(run_preset(sys.argv[2:]))
+    elif resolved == "search":
+        from pkgeter.search import run_search
+        sys.exit(run_search(sys.argv[2:]))
     elif resolved == "help":
         print("pkgeter — Offline package downloader")
-        print("Commands: get, repo, preset, help, exit")
+        print("Commands: get, repo, preset, search, help, exit")
         sys.exit(0)
     elif resolved == "exit":
         sys.exit(0)

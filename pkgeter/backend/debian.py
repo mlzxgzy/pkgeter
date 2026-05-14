@@ -39,6 +39,7 @@ class DebianBackend(PmBackend):
         repos: list[RepoConfig],
         arch: str,
         timeout: int = 60,
+        force_update: bool = False,
     ) -> Dict[str, PackageInfo]:
         """Download metadata from all Debian repos, merge into a single package DB.
 
@@ -55,7 +56,7 @@ class DebianBackend(PmBackend):
         dbs: list[Dict[str, PackageInfo]] = []
 
         for repo in repos:
-            repo_db = self._download_repo(repo, arch, timeout=timeout)
+            repo_db = self._download_repo(repo, arch, timeout=timeout, force_update=force_update)
             if repo_db:
                 dbs.append(repo_db)
 
@@ -185,6 +186,7 @@ class DebianBackend(PmBackend):
         arch: str,
         *,
         timeout: int = 60,
+        force_update: bool = False,
     ) -> Dict[str, PackageInfo] | None:
         """Download and parse *all components* of a single repository."""
         components = repo.components or ["main"]
@@ -194,7 +196,7 @@ class DebianBackend(PmBackend):
             try:
                 parsed = self._download_component(
                     repo.url, repo.release, component, arch,
-                    timeout=timeout,
+                    timeout=timeout, force_update=force_update,
                 )
                 if parsed:
                     repo_db.update(parsed)
@@ -202,6 +204,8 @@ class DebianBackend(PmBackend):
                 # Don't fail entirely just because one component is bad
                 continue
 
+        for pkg in repo_db.values():
+            pkg.base_url = repo.url
         return repo_db if repo_db else None
 
     def _download_component(
@@ -212,6 +216,7 @@ class DebianBackend(PmBackend):
         arch: str,
         *,
         timeout: int = 60,
+        force_update: bool = False,
     ) -> Dict[str, PackageInfo] | None:
         """Download and parse Packages.gz for a single component/release/arch.
 
@@ -220,14 +225,19 @@ class DebianBackend(PmBackend):
         HTTP download.
         """
         if component == "main":
-            # Use the existing SourceCache (which hard-codes "main")
             cache = SourceCache(mirror, release, arch)
-            if cache.update(timeout=timeout):
+            if cache.update(timeout=timeout, force_update=force_update):
+                action = cache.last_action
+                if action == "cache_hit":
+                    print(" (cached)", end="", flush=True)
+                elif action == "downloaded":
+                    print(" (downloaded)", end="", flush=True)
                 raw = cache.read_packages_gz()
                 if raw is not None:
                     return self._parse_packages_gz(raw)
 
         # Direct HTTP fallback (non-main components, or cache failure)
+        print(" (downloading)", end="", flush=True)
         url = self._build_component_url(mirror, release, component, arch)
         with httpx.Client(timeout=timeout) as client:
             resp = client.get(url, follow_redirects=True)

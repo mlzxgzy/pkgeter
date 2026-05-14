@@ -18,6 +18,7 @@ Directory layout::
 from __future__ import annotations
 
 import hashlib
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -72,6 +73,8 @@ class SourceCache:
         self._cache_dir = CACHE_ROOT / mirror_dir / release / arch
         self._release_path = self._cache_dir / "Release"
         self._packages_gz_path = self._cache_dir / "Packages.gz"
+        # Tracks what the last update() call did (for caller feedback)
+        self.last_action: str = "unknown"  # "cache_hit" | "downloaded" | "stale" | "failed"
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -100,18 +103,27 @@ class SourceCache:
     # Public API
     # ------------------------------------------------------------------
 
-    def update(self, timeout: int = 60) -> bool:
+    def update(self, timeout: int = 60, force_update: bool = False) -> bool:
         """Ensure the cached Packages.gz is up to date.
 
         Strategy (mirrors APT):
 
-        1. Always try to download the (small) ``Release`` file.
-        2. Extract the expected SHA256 of ``Packages.gz``.
-        3. If the cached file has the same hash → fresh, nothing to do.
-        4. Otherwise download ``Packages.gz``, verify the hash, cache it.
+        1. If the cache is less than 1 hour old → skip all HTTP (unless
+           *force_update* is ``True``).
+        2. Download the (small) ``Release`` file.
+        3. Extract the expected SHA256 of ``Packages.gz``.
+        4. If the cached file has the same hash → fresh, nothing to do.
+        5. Otherwise download ``Packages.gz``, verify the hash, cache it.
 
         Returns ``True`` when a valid (possibly stale) cache is available.
         """
+        # 1-hour cache cooldown – skip HTTP entirely when the cache is fresh
+        if not force_update and self._packages_gz_path.exists():
+            age = time.time() - self._packages_gz_path.stat().st_mtime
+            if age < 3600:
+                self.last_action = "cache_hit"
+                return True
+
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
         # -- 1. Download Release file and extract the expected SHA256 ---
@@ -137,6 +149,7 @@ class SourceCache:
         if expected_sha256 is not None:
             cached_sha = self._file_sha256(self._packages_gz_path)
             if cached_sha == expected_sha256:
+                self.last_action = "cache_hit"
                 return True  # Cache is still fresh
 
         # -- 3. Download Packages.gz (only if we know the expected hash) --
@@ -148,18 +161,23 @@ class SourceCache:
                 raw = resp.content
             except httpx.HTTPError:
                 # Network issue – keep stale cache if we have one
-                return self._packages_gz_path.exists()
+                ok = self._packages_gz_path.exists()
+                self.last_action = "stale" if ok else "failed"
+                return ok
 
             if hashlib.sha256(raw).hexdigest() != expected_sha256:
                 # Checksum mismatch – don't save corrupt data
+                self.last_action = "failed"
                 return False
 
             self._packages_gz_path.write_bytes(raw)
+            self.last_action = "downloaded"
             return True
 
         # -- 4. Fallback paths (Release unavailable or no SHA256 entry) ---
         if self._packages_gz_path.exists():
             # Stale cache is better than nothing
+            self.last_action = "stale"
             return True
 
         # Last resort: download blindly (Release structure unexpected)
@@ -169,10 +187,13 @@ class SourceCache:
                     resp = client.get(self._packages_url(), follow_redirects=True)
                     resp.raise_for_status()
                 self._packages_gz_path.write_bytes(resp.content)
+                self.last_action = "downloaded"
                 return True
             except httpx.HTTPError:
+                self.last_action = "failed"
                 return False
 
+        self.last_action = "failed"
         return False
 
     def read_packages_gz(self) -> Optional[bytes]:

@@ -30,12 +30,11 @@ class Downloader:
         self,
         packages: Dict[str, tuple[str, str, int]],
     ) -> Dict[str, Path]:
-        """Download all .deb files.
+        """Download all package files.
 
         Args:
-            packages: dict of package_name -> (remote_filename, sha256, size)
-                      where remote_filename is the relative path from mirror root
-                      (e.g. "pool/main/v/vsftpd/vsftpd_3.0.5-3_amd64.deb")
+            packages: dict of package_name -> (url, sha256, size)
+                      where url is the full remote URL to download from.
 
         Returns:
             dict of package_name -> local Path to downloaded file
@@ -45,9 +44,8 @@ class Downloader:
         completed = 0
 
         with httpx.Client(timeout=self.timeout) as client:
-            for name, (filename, sha256, _size) in packages.items():
-                url = f"{self.mirror}/{filename}"
-                local_path = self.dest_dir / Path(filename).name
+            for name, (url, sha256, _size) in packages.items():
+                local_path = self.dest_dir / url.rsplit("/", 1)[-1]
 
                 try:
                     resp = client.get(url, follow_redirects=True)

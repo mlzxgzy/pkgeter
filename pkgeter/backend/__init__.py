@@ -22,6 +22,7 @@ class PmBackend(ABC):
         repos: list[RepoConfig],
         arch: str,
         timeout: int = 60,
+        force_update: bool = False,
     ) -> dict[str, PackageInfo]:
         """Download metadata from all repos, merge into a single package DB."""
         ...

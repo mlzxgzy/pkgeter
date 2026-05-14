@@ -11,6 +11,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import re
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict
@@ -49,6 +50,7 @@ class RpmBackend(PmBackend):
         repos: list[RepoConfig],
         arch: str,
         timeout: int = 60,
+        force_update: bool = False,
     ) -> Dict[str, PackageInfo]:
         """Download metadata from all RPM repos, merge into a single package DB.
 
@@ -68,7 +70,7 @@ class RpmBackend(PmBackend):
 
         for repo in repos:
             try:
-                repo_db = self._download_repo(repo, timeout=timeout)
+                repo_db = self._download_repo(repo, timeout=timeout, force_update=force_update)
                 if repo_db:
                     dbs.append(repo_db)
             except Exception:
@@ -181,7 +183,7 @@ class RpmBackend(PmBackend):
                 if provides_el is not None:
                     for entry in provides_el.findall("rpm-format:entry", NS):
                         prov_name = entry.get("name", "")
-                        if prov_name and prov_name == name:
+                        if prov_name:
                             provides.append(prov_name)
 
             packages[name] = PackageInfo(
@@ -205,9 +207,23 @@ class RpmBackend(PmBackend):
         repo: RepoConfig,
         *,
         timeout: int = 60,
+        force_update: bool = False,
     ) -> Dict[str, PackageInfo] | None:
         """Download and parse a single RPM repository's metadata."""
         base_url = repo.url.rstrip("/")
+        sanitized = re.sub(r"[^a-zA-Z0-9]", "_", base_url)
+        cache_dir = CONFIG_PATH.parent / "sources" / "rpm" / sanitized
+        cache_path = cache_dir / "primary.xml.gz"
+
+        # 1-hour cache cooldown – skip HTTP entirely when the cache is fresh
+        if not force_update and cache_path.exists():
+            age = time.time() - cache_path.stat().st_mtime
+            if age < 3600:
+                packages = self._parse_primary(cache_path.read_bytes())
+                for pkg in packages.values():
+                    pkg.base_url = repo.url
+                return packages
+
         repomd_url = f"{base_url}/repodata/repomd.xml"
 
         with httpx.Client(timeout=timeout) as client:
@@ -217,16 +233,14 @@ class RpmBackend(PmBackend):
 
         href, expected_sha256 = self._parse_repomd(repomd_xml)
 
-        # Per-repo file cache
-        sanitized = re.sub(r"[^a-zA-Z0-9]", "_", base_url)
-        cache_dir = CONFIG_PATH.parent / "sources" / "rpm" / sanitized
-        cache_path = cache_dir / "primary.xml.gz"
-
         # Check cache: if cached file's SHA256 matches, skip download
         if cache_path.exists():
             cached_sha256 = hashlib.sha256(cache_path.read_bytes()).hexdigest()
             if cached_sha256 == expected_sha256:
-                return self._parse_primary(cache_path.read_bytes())
+                packages = self._parse_primary(cache_path.read_bytes())
+                for pkg in packages.values():
+                    pkg.base_url = repo.url
+                return packages
 
         # Download primary.xml.gz
         primary_url = f"{base_url}/{href}"
@@ -248,7 +262,10 @@ class RpmBackend(PmBackend):
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(data)
 
-        return self._parse_primary(data)
+        packages = self._parse_primary(data)
+        for pkg in packages.values():
+            pkg.base_url = repo.url
+        return packages
 
 
 class DnfBackend(RpmBackend):

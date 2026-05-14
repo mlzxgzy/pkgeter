@@ -75,6 +75,12 @@ class Resolver:
                 # OR dependency: try each alternative, use first available
                 resolved_one = False
                 for dep in dep_group:
+                    # Skip non-package deps that are satisfied by the base system:
+                    #   - Absolute file paths (e.g. /bin/awk)
+                    #   - Shared library sonames (e.g. libcrypto.so.1.1()(64bit))
+                    if dep.name.startswith("/") or ".so" in dep.name or dep.name.startswith("rpmlib(") or dep.name == "rtld(GNU_HASH)":
+                        resolved_one = True
+                        break
                     try:
                         sub_deps = self._resolve_one(dep.name)
                         result.extend(sub_deps)

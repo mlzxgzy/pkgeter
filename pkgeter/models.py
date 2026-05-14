@@ -32,6 +32,7 @@ class PackageInfo:
     sha256: str = ""
     size: int = 0
     description: str = ""
+    base_url: str = ""  # Source repository URL for downloading
 
 
 @dataclass

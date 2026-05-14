@@ -19,8 +19,8 @@ from pkgeter.config import Config
 class PkgeterREPL(cmd.Cmd):
     prompt = "pkgeter> "
 
-    CORE_CMDS = {"get", "repo", "preset", "help", "exit"}
-    ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo"}
+    CORE_CMDS = {"get", "repo", "preset", "search", "help", "exit"}
+    ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo", "s": "search", "se": "search"}
 
     def __init__(self):
         super().__init__()
@@ -38,10 +38,15 @@ class PkgeterREPL(cmd.Cmd):
         mirrors = cfg.get_mirrors()
         repos = cfg.get_repos()
 
+        mirror_variant = cfg.get_mirror_variant()
+        preset_name = cfg.get_preset_name()
+        if preset_name:
+            lines.append(f"  Preset:    {preset_name}")
         lines.append(f"  Backend:   {backend}")
         if release:
             lines.append(f"  Release:   {release}")
         lines.append(f"  Arch:      {arch}")
+        lines.append(f"  Variant:   {mirror_variant}")
         if mirror:
             lines.append(f"  Mirror:    {mirror}")
         if len(mirrors) > 1:
@@ -62,9 +67,11 @@ class PkgeterREPL(cmd.Cmd):
         return "\n".join(lines)
 
     def emptyline(self) -> bool:
-        print()
-        for line in self._status_lines():
-            print(line)
+        from pkgeter.preset import list_presets
+        print("  Commands: get (g), repo (r), preset, search (s), help (h), exit (ex)")
+        presets = list_presets()
+        if presets:
+            print(f"  Presets:  {', '.join(presets)}  (type name to switch)")
         print()
         return False
 
@@ -89,6 +96,14 @@ class PkgeterREPL(cmd.Cmd):
         raw_cmd, *args = parts
         resolved = self._resolve(raw_cmd)
         if resolved is None:
+            # Fast-switch: if input matches a preset name, apply it
+            from pkgeter.preset import list_presets, run_preset
+            if raw_cmd in list_presets():
+                try:
+                    run_preset(["apply", raw_cmd])
+                except SystemExit:
+                    pass
+                return False
             print(f"Unknown command: {raw_cmd}. Type help.")
             return False
 
@@ -122,19 +137,31 @@ class PkgeterREPL(cmd.Cmd):
                 pass
             except Exception as exc:
                 print(f"Error: {exc}", file=sys.stderr)
+        elif resolved == "search":
+            from pkgeter.search import run_search
+            try:
+                run_search(args)
+            except SystemExit:
+                pass
+            except Exception as exc:
+                print(f"Error: {exc}", file=sys.stderr)
         return False
 
     # ---- TAB completion: commands ----
 
     def completenames(self, text: str, *ignored) -> list[str]:
-        return sorted(c for c in self.CORE_CMDS if c.startswith(text))
+        cmds = sorted(c for c in self.CORE_CMDS if c.startswith(text))
+        from pkgeter.preset import list_presets
+        presets = sorted(p for p in list_presets() if p.startswith(text))
+        return cmds + presets
 
     # ---- TAB completion: get ----
 
     def complete_get(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
         flags = [
             "--packages", "-p", "--distro", "--release", "-r",
-            "--arch", "-a", "--mirror", "-m", "--output", "-o", "--config",
+            "--arch", "-a", "--mirror", "-m", "--cn",
+            "--force-update", "--output", "-o", "--config",
         ]
         return [f for f in flags if f.startswith(text)]
 
@@ -176,6 +203,16 @@ class PkgeterREPL(cmd.Cmd):
 
         return []
 
+    # ---- TAB completion: search ----
+
+    def complete_search(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        flags = [
+            "--distro", "--release", "-r",
+            "--arch", "-a", "--mirror", "-m", "--cn",
+            "--force-update", "--config", "--desc",
+        ]
+        return [f for f in flags if f.startswith(text)]
+
     # ---- TAB completion: repo arg completer (for remove) ----
 
     @staticmethod
@@ -188,8 +225,14 @@ class PkgeterREPL(cmd.Cmd):
     # ---- help ----
 
     def do_help(self, _: str) -> None:
-        print("Commands (prefix matching: g=get, r=repo, pr=preset):")
-        print("  get (g)    <options>   Download packages with dependencies")
+        print("Commands (prefix matching: g=get, r=repo, s=search, pr=preset):")
+        print("  get (g)    [opts]      Download packages with dependencies")
+        print("               --mirror/-m Mirror variant (default, cn, …)")
+        print("               --cn         Shortcut for --mirror cn")
+        print("               --force-update Force cache refresh")
+        print("  search (s) [opts]      Search package database")
+        print("               --desc         Also search in descriptions")
+        print("               --force-update Force cache refresh")
         print("  repo (r)   <command>   Manage repositories (list/add/remove)")
         print("  preset     <command>   List/apply distribution presets")
         print("  help (h)               Show this help")
@@ -200,6 +243,9 @@ class PkgeterREPL(cmd.Cmd):
         print()
         print("Examples:")
         print('  g -p nginx --distro centos-9')
+        print('  g nginx --mirror cn')
+        print('  s openssh')
+        print('  s *sql* --desc')
         print('  r l')
         print('  r a --name myrepo --type deb --url https://example.com')
         print('  p a debian-bookworm')

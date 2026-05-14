@@ -15,6 +15,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "release": "bookworm",
     "arch": "amd64",
     "mirror": _DEFAULT_MIRROR,
+    "mirror_variant": "default",
+    "preset": "",
     "virtual_packages": {},
     "output_dir": "./output",
 }
@@ -173,3 +175,19 @@ class Config:
     def set_backend(self, backend: str) -> None:
         """Set the package-manager backend."""
         self.data["backend"] = backend
+
+    def get_mirror_variant(self) -> str:
+        """Return the configured mirror variant (default: 'default')."""
+        return str(self.data.get("mirror_variant", "default"))
+
+    def set_mirror_variant(self, variant: str) -> None:
+        """Set the mirror variant (e.g. 'default', 'cn')."""
+        self.data["mirror_variant"] = variant
+
+    def get_preset_name(self) -> str:
+        """Return the name of the last-applied preset, or empty string."""
+        return str(self.data.get("preset", ""))
+
+    def set_preset_name(self, name: str) -> None:
+        """Set the last-applied preset name."""
+        self.data["preset"] = name

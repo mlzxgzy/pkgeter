@@ -106,14 +106,18 @@ def run_search(argv: list[str]) -> int:
         return 1
 
     # Download AND search per-repo so results show the origin repo
-    print("Downloading package database...")
     repo_dbs: list[tuple[str, Dict[str, PackageInfo]]] = []
     for repo in repos:
         try:
+            print(f"  Loading {repo.name}...", end="", flush=True)
             db = backend.download_package_db([repo], arch, force_update=args.force_update)
             if db:
                 repo_dbs.append((repo.name, db))
+                print(f" {len(db)} packages")
+            else:
+                print(" (empty)")
         except Exception:
+            print(" (failed)")
             continue
 
     if not repo_dbs:
