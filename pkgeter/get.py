@@ -207,7 +207,7 @@ def run_get(argv: list[str]) -> int:
     logger.debug("Backend: %s", type(backend).__name__)
 
     # Download package DB
-    print("Downloading package database...")
+    print("Loading package database...")
     logger.debug("force_update=%s", args.force_update)
     package_db = backend.download_package_db(repos, arch, force_update=args.force_update)
     if not package_db:
