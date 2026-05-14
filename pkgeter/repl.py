@@ -13,13 +13,60 @@ try:
 except ImportError:
     import pyreadline3  # noqa: F401  # Windows
 
+from pkgeter.config import Config
+
 
 class PkgeterREPL(cmd.Cmd):
-    intro = "\n    pkgeter — Offline package downloader\n    Type ? or help\n\n"
     prompt = "pkgeter> "
 
     CORE_CMDS = {"get", "repo", "preset", "help", "exit"}
     ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo"}
+
+    def __init__(self):
+        super().__init__()
+        self.intro = self._build_intro()
+
+    # ---- Status display ----
+
+    def _status_lines(self) -> list[str]:
+        cfg = Config()
+        lines = []
+        backend = cfg.get_backend()
+        arch = cfg.get("arch", "amd64")
+        release = cfg.get("release", "")
+        mirror = cfg.get("mirror", "")
+        mirrors = cfg.get_mirrors()
+        repos = cfg.get_repos()
+
+        lines.append(f"  Backend:   {backend}")
+        if release:
+            lines.append(f"  Release:   {release}")
+        lines.append(f"  Arch:      {arch}")
+        if mirror:
+            lines.append(f"  Mirror:    {mirror}")
+        if len(mirrors) > 1:
+            lines.append(f"  Fallbacks: {', '.join(mirrors[1:])}")
+        if repos:
+            lines.append(f"  Repos:     {len(repos)} configured")
+        else:
+            lines.append("  Repos:     (none — will use default debian-bookworm preset)")
+        lines.append(f"  Output:    {cfg.get('output_dir', './output')}")
+        return lines
+
+    def _build_intro(self) -> str:
+        lines = ["", "  pkgeter — Offline package downloader", ""]
+        lines.extend(self._status_lines())
+        lines.append("")
+        lines.append("  Type ? or help")
+        lines.append("")
+        return "\n".join(lines)
+
+    def emptyline(self) -> bool:
+        print()
+        for line in self._status_lines():
+            print(line)
+        print()
+        return False
 
     # ---- Prefix resolution ----
 
