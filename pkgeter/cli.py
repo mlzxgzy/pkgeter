@@ -6,7 +6,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from pkgeter.config import CONFIG_PATH, Config
+import httpx
+
+from pkgeter.config import CONFIG_PATH, Config, parse_mirror_entry
 from pkgeter.db.dpkg_list import parse_dpkg_list_file
 from pkgeter.db.packages import download_package_db
 from pkgeter.deps.resolver import Resolver
@@ -24,6 +26,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--packages", "-p",
         nargs="+",
         help="Target package names to download",
+    )
+    parser.add_argument(
+        "--mirror", "-m",
+        action="append",
+        dest="mirrors",
+        help=(
+            "Debian mirror URL (repeatable, tried in order). "
+            "Defaults to the last-used mirror from config."
+        ),
     )
     parser.add_argument(
         "--release", "-r",
@@ -53,13 +64,51 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _try_load_package_db(
+    mirrors: list[str],
+    release: str,
+    arch: str,
+    timeout: int = 60,
+) -> tuple[dict, str] | tuple[None, None]:
+    """Try each mirror in order until one yields a package database.
+
+    Each mirror entry may carry an ``@release`` override suffix.
+    Returns ``(package_db, used_entry)`` or ``(None, None)``,
+    where *used_entry* is the original entry (with ``@`` if present).
+    """
+    for entry in mirrors:
+        mirror_url, release_override = parse_mirror_entry(entry)
+        effective_release = release_override or release
+        try:
+            label = mirror_url
+            if release_override:
+                label += f"  (release: {effective_release})"
+            print(f"  Trying mirror: {label}")
+            package_db = download_package_db(
+                mirror_url, effective_release, arch,
+                use_cache=True, timeout=timeout,
+            )
+            if package_db:
+                return package_db, entry
+        except httpx.HTTPError as exc:
+            print(f"  Mirror failed: {exc}", file=sys.stderr)
+        except Exception as exc:
+            print(f"  Mirror error: {exc}", file=sys.stderr)
+    return None, None
+
+
+def _promote_mirror(mirrors: list[str], winner: str) -> list[str]:
+    """Move *winner* to the front of the list, preserving relative order of the rest."""
+    result = [m for m in mirrors if m != winner]
+    return [winner] + result
+
+
 def run_headless(args: argparse.Namespace) -> int:
     """Execute CLI mode."""
     config = Config(args.config)
 
     release = args.release or config.get("release", "bookworm")
     arch = args.arch or config.get("arch", "amd64")
-    mirror = config.get("mirror", "https://deb.debian.org/debian")
     output_dir = args.output
 
     target_packages = args.packages
@@ -67,18 +116,33 @@ def run_headless(args: argparse.Namespace) -> int:
         print("Error: --packages is required")
         return 1
 
-    # 1. Download package database
-    print(f"Downloading package database for {release}/{arch}...")
-    package_db = download_package_db(mirror, release, arch)
-    print(f"Found {len(package_db)} packages in repository")
+    # ----- 1. Resolve mirrors: CLI > config > default -----
+    mirrors: list[str] = args.mirrors or config.get_mirrors()
 
-    # 2. Load installed packages
+    # ----- 2. Download package database (try mirrors in order) -----
+    print(f"Downloading package database for {release}/{arch} ...")
+    package_db, used_mirror = _try_load_package_db(mirrors, release, arch)
+    if package_db is None:
+        print(
+            "Error: all mirrors failed — check your network or mirror URLs",
+            file=sys.stderr,
+        )
+        return 1
+    clean_mirror, _ = parse_mirror_entry(used_mirror)
+    print(f"  Using mirror: {clean_mirror}")
+    print(f"  Found {len(package_db)} packages in repository")
+
+    # Persist successful mirror entry (with @ override if present) to config
+    config.set_mirrors(_promote_mirror(mirrors, used_mirror))
+    config.save()
+
+    # ----- 3. Load installed packages -----
     installed = set()
     if args.dpkg_list:
         installed = parse_dpkg_list_file(args.dpkg_list)
-        print(f"Found {len(installed)} installed packages from dpkg -l")
+        print(f"  Found {len(installed)} installed packages from dpkg -l")
 
-    # 3. Resolve dependencies
+    # ----- 4. Resolve dependencies -----
     print("Resolving dependencies...")
     resolver = Resolver(
         all_pkgs=package_db,
@@ -90,12 +154,12 @@ def run_headless(args: argparse.Namespace) -> int:
         ),
     )
     needed = resolver.resolve(target_packages)
-    print(f"Need to download {len(needed)} packages")
+    print(f"  Need to download {len(needed)} packages")
 
-    # 4. Download
+    # ----- 5. Download .deb files -----
     download_dir = output_dir / ".downloads"
     downloader = Downloader(
-        mirror=mirror,
+        mirror=clean_mirror,
         dest_dir=download_dir,
         progress_callback=lambda name, done, total: print(
             f"  [{done}/{total}] Downloaded {name}"
@@ -107,7 +171,7 @@ def run_headless(args: argparse.Namespace) -> int:
         pkg_download_info[name] = (info.filename, info.sha256, info.size)
     downloaded = downloader.download_all(pkg_download_info)
 
-    # 5. Generate install script
+    # ----- 6. Generate install script -----
     pkg_list = " ".join(target_packages)
     deb_names = [downloaded[name].name for name in needed]
     deb_cmds = "\n".join(
@@ -125,7 +189,7 @@ def run_headless(args: argparse.Namespace) -> int:
         f"{deb_cmds}\n"
     )
 
-    # 6. Write output
+    # ----- 7. Write output -----
     fmt = DebDirectoryOutput()
     result = fmt.execute(
         deb_files=downloaded,

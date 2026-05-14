@@ -9,10 +9,12 @@ import yaml
 
 CONFIG_PATH = Path.home() / ".config" / "pkgeter" / "config.yaml"
 
+_DEFAULT_MIRROR = "https://deb.debian.org/debian"
+
 DEFAULT_CONFIG: dict[str, Any] = {
     "release": "bookworm",
     "arch": "amd64",
-    "mirror": "https://deb.debian.org/debian",
+    "mirror": _DEFAULT_MIRROR,
     "virtual_packages": {},
     "output_dir": "./output",
 }
@@ -62,6 +64,24 @@ def _detect_arch() -> str | None:
         return None
 
 
+def parse_mirror_entry(entry: str) -> tuple[str, str | None]:
+    """Parse a mirror entry, extracting an optional ``@release`` override.
+
+    Examples::
+
+        >>> parse_mirror_entry("https://deb.debian.org/debian")
+        ("https://deb.debian.org/debian", None)
+
+        >>> parse_mirror_entry("https://security.debian.org/debian-security@bookworm-security")
+        ("https://security.debian.org/debian-security", "bookworm-security")
+    """
+    # rsplit on "@".  A valid release override has no "/" and is non-empty.
+    parts = entry.rsplit("@", 1)
+    if len(parts) == 2 and parts[1] and "/" not in parts[1]:
+        return parts[0], parts[1]
+    return entry, None
+
+
 class Config:
     """Load/save persistent configuration."""
 
@@ -87,9 +107,30 @@ class Config:
                 self.data = merged
                 self.save()
                 return
+
+        # ----- reconcile mirror <-> mirrors -----
+        self._sync_mirror_fields(merged)
         self.data = merged
 
+    @staticmethod
+    def _sync_mirror_fields(cfg: dict[str, Any]) -> None:
+        """Ensure ``mirror`` and ``mirrors`` are consistent after loading."""
+        mirror: str | None = cfg.get("mirror")
+        mirrors: list[str] | None = cfg.get("mirrors")
+
+        if mirrors:
+            cfg["mirror"] = mirrors[0]
+        elif mirror:
+            cfg["mirrors"] = [mirror]
+        else:
+            cfg["mirror"] = _DEFAULT_MIRROR
+            cfg["mirrors"] = [_DEFAULT_MIRROR]
+
     def save(self) -> None:
+        # Keep mirror and mirrors in sync
+        mirrors = self.data.get("mirrors")
+        if mirrors:
+            self.data["mirror"] = mirrors[0]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "w", encoding="utf-8") as f:
             yaml.dump(self.data, f, default_flow_style=False)
@@ -99,3 +140,20 @@ class Config:
 
     def set(self, key: str, value: Any) -> None:
         self.data[key] = value
+
+    def get_mirrors(self) -> list[str]:
+        """Return the list of configured mirrors."""
+        mirrors = self.data.get("mirrors")
+        if isinstance(mirrors, list) and mirrors:
+            return mirrors
+        mirror = self.data.get("mirror")
+        if mirror:
+            return [mirror]
+        return ["https://deb.debian.org/debian"]
+
+    def set_mirrors(self, mirrors: list[str]) -> None:
+        """Set the mirrors list (keeps mirror in sync)."""
+        if not mirrors:
+            return
+        self.data["mirrors"] = mirrors
+        self.data["mirror"] = mirrors[0]
