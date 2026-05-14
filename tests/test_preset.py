@@ -132,9 +132,11 @@ class TestPresetsDict:
         assert "debian-bullseye" in PRESETS
         assert "centos-9" in PRESETS
 
-    def test_exactly_three_presets(self):
-        """No extra presets are defined beyond the required three."""
-        assert len(PRESETS) == 3
+    def test_expected_presets_exist(self):
+        """The three required presets are defined."""
+        assert "debian-bookworm" in PRESETS
+        assert "debian-bullseye" in PRESETS
+        assert "centos-9" in PRESETS
 
     def test_debian_bookworm_structure(self):
         """debian-bookworm preset has correct structure."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import Any
 
 from pkgeter.config import Config
 from pkgeter.models import RepoConfig
@@ -12,7 +13,7 @@ from pkgeter.models import RepoConfig
 # Preset definitions
 # ---------------------------------------------------------------------------
 
-PRESETS: dict[str, dict] = {
+PRESETS: dict[str, Any] = {
     "debian-bookworm": {
         "backend": "debian",
         "arch": "amd64",
