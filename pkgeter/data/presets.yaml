@@ -1,5 +1,5 @@
 debian-bookworm:
-  backend: debian
+  backend: apt
   arch: amd64
   repos:
     - name: main
@@ -19,7 +19,7 @@ debian-bookworm:
       components: [main]
 
 debian-bullseye:
-  backend: debian
+  backend: apt
   arch: amd64
   repos:
     - name: main
@@ -39,7 +39,7 @@ debian-bullseye:
       components: [main]
 
 debian-trixie:
-  backend: debian
+  backend: apt
   arch: amd64
   repos:
     - name: main
@@ -73,7 +73,7 @@ centos-9:
       url: https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64
 
 pve8:
-  backend: debian
+  backend: apt
   arch: amd64
   repos:
     - name: main

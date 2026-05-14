@@ -123,7 +123,8 @@ def run_get(argv: list[str]) -> int:
     packages, and generates the output.
     """
     parser = argparse.ArgumentParser(prog="pkgeter get")
-    parser.add_argument("--packages", "-p", nargs="+", required=True)
+    parser.add_argument("packages", nargs="*", help="Target packages (positional)")
+    parser.add_argument("--packages", "-p", nargs="+", dest="opt_packages", help="Target packages")
     parser.add_argument("--distro")
     parser.add_argument("--release", "-r")
     parser.add_argument("--arch", "-a")
@@ -135,6 +136,10 @@ def run_get(argv: list[str]) -> int:
     except SystemExit:
         return 1
 
+    packages = args.packages or args.opt_packages
+    if not packages:
+        print("Error: specify packages to get", file=sys.stderr)
+        return 1
     config = Config(args.config)
     arch = args.arch or config.get("arch", "amd64")
 
@@ -160,9 +165,12 @@ def run_get(argv: list[str]) -> int:
             backend_name = config.get_backend()
 
     # Instantiate backend
-    if backend_name == "debian":
+    if backend_name in ("apt", "debian"):  # "debian" for backward compat
         from pkgeter.backend.debian import DebianBackend
         backend = DebianBackend()
+    elif backend_name == "dnf":
+        from pkgeter.backend.rpm import DnfBackend
+        backend = DnfBackend()
     elif backend_name == "rpm":
         from pkgeter.backend.rpm import RpmBackend
         backend = RpmBackend()
@@ -189,7 +197,7 @@ def run_get(argv: list[str]) -> int:
             else p[0]
         ),
     )
-    needed = resolver.resolve(args.packages)
+    needed = resolver.resolve(packages)
     print(f"Need to download {len(needed)} packages")
 
     # Build download info
@@ -209,10 +217,10 @@ def run_get(argv: list[str]) -> int:
 
     downloaded = downloader.download_all(pkg_info)
     files = [downloaded[name].name for name in needed]
-    install_script = backend.generate_install_script(files, args.packages)
+    install_script = backend.generate_install_script(files, packages)
 
     # Output
-    if backend_name == "debian":
+    if backend_name in ("apt", "debian"):
         from pkgeter.output.deb_directory import DebDirectoryOutput
         fmt = DebDirectoryOutput()
     else:

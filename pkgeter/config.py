@@ -167,8 +167,8 @@ class Config:
         self.data["repos"] = list(repos)
 
     def get_backend(self) -> str:
-        """Return the configured package-manager backend (default: 'debian')."""
-        return str(self.data.get("backend", "debian"))
+        """Return the configured package-manager backend (default: 'apt')."""
+        return str(self.data.get("backend", "apt"))
 
     def set_backend(self, backend: str) -> None:
         """Set the package-manager backend."""

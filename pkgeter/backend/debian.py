@@ -32,7 +32,7 @@ class DebianBackend(PmBackend):
 
     @property
     def name(self) -> str:
-        return "debian"
+        return "apt"
 
     def download_package_db(
         self,

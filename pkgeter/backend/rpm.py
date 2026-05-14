@@ -249,3 +249,11 @@ class RpmBackend(PmBackend):
         cache_path.write_bytes(data)
 
         return self._parse_primary(data)
+
+
+class DnfBackend(RpmBackend):
+    """DNF backend — identical to RPM, but reports ``name == 'dnf'``."""
+
+    @property
+    def name(self) -> str:
+        return "dnf"

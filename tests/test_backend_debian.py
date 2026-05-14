@@ -10,7 +10,7 @@ DATA_DIR = Path(__file__).parent / "data"
 
 def test_backend_name():
     """DebianBackend.name returns ``'debian'``."""
-    assert DebianBackend().name == "debian"
+    assert DebianBackend().name == "apt"
 
 
 def test_parse_deb_stanza_simple():
