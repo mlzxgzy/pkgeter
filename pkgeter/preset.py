@@ -1,108 +1,88 @@
-"""Distribution presets — quick configuration for known distros/releases."""
+"""Distribution presets — loaded from presets.yaml, persisted in config dir."""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import Any
 
+import yaml
+
 from pkgeter.cli import resolve_subcmd
-from pkgeter.config import Config
+from pkgeter.config import CONFIG_PATH, Config
 from pkgeter.models import RepoConfig
 
 PRESET_ACTIONS = ["list", "apply"]
 
+# ---- Data file paths ----
+
+_PACKAGE_DIR = Path(__file__).parent
+_BUILTIN_PRESETS = _PACKAGE_DIR / "data" / "presets.yaml"
+_USER_PRESETS = CONFIG_PATH.parent / "presets.yaml"
+
 # ---------------------------------------------------------------------------
-# Preset definitions
+# Lazy loading from YAML
 # ---------------------------------------------------------------------------
 
-PRESETS: dict[str, Any] = {
-    "debian-bookworm": {
-        "backend": "debian",
-        "arch": "amd64",
-        "repos": [
-            RepoConfig(
-                name="main",
-                type="deb",
-                url="https://deb.debian.org/debian",
-                release="bookworm",
-                components=["main"],
-            ),
-            RepoConfig(
-                name="security",
-                type="deb",
-                url="https://security.debian.org/debian-security",
-                release="bookworm-security",
-                components=["main"],
-            ),
-            RepoConfig(
-                name="updates",
-                type="deb",
-                url="https://deb.debian.org/debian",
-                release="bookworm-updates",
-                components=["main"],
-            ),
-        ],
-    },
-    "debian-bullseye": {
-        "backend": "debian",
-        "arch": "amd64",
-        "repos": [
-            RepoConfig(
-                name="main",
-                type="deb",
-                url="https://deb.debian.org/debian",
-                release="bullseye",
-                components=["main"],
-            ),
-            RepoConfig(
-                name="security",
-                type="deb",
-                url="https://security.debian.org/debian-security",
-                release="bullseye-security",
-                components=["main"],
-            ),
-            RepoConfig(
-                name="updates",
-                type="deb",
-                url="https://deb.debian.org/debian",
-                release="bullseye-updates",
-                components=["main"],
-            ),
-        ],
-    },
-    "centos-9": {
-        "backend": "rpm",
-        "arch": "x86_64",
-        "repos": [
-            RepoConfig(
-                name="baseos",
-                type="rpm",
-                url="https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os",
-            ),
-            RepoConfig(
-                name="appstream",
-                type="rpm",
-                url="https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os",
-            ),
-            RepoConfig(
-                name="epel",
-                type="rpm",
-                url="https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64",
-            ),
-        ],
-    },
-}
+_PRESETS_CACHE: dict[str, Any] | None = None
+
+
+def _ensure_user_presets() -> Path:
+    """Copy built-in presets to config dir if user file doesn't exist."""
+    if not _USER_PRESETS.exists():
+        _USER_PRESETS.parent.mkdir(parents=True, exist_ok=True)
+        if _BUILTIN_PRESETS.exists():
+            import shutil
+            shutil.copy2(_BUILTIN_PRESETS, _USER_PRESETS)
+        else:
+            _USER_PRESETS.write_text("# pkgeter presets — add your own presets here\n")
+    return _USER_PRESETS
+
+
+def _load_presets() -> dict[str, Any]:
+    """Load presets from user config dir (lazily cached)."""
+    global _PRESETS_CACHE
+    if _PRESETS_CACHE is not None:
+        return _PRESETS_CACHE
+
+    user_path = _ensure_user_presets()
+    raw = yaml.safe_load(user_path.read_text(encoding="utf-8")) or {}
+
+    presets: dict[str, Any] = {}
+    for name, data in raw.items():
+        if not isinstance(data, dict):
+            continue
+        repos = [RepoConfig.from_dict(r) for r in data.get("repos", [])]
+        presets[name] = {
+            "backend": data.get("backend", ""),
+            "arch": data.get("arch", ""),
+            "repos": repos,
+        }
+
+    _PRESETS_CACHE = presets
+    return presets
+
+
+def reload_presets() -> None:
+    """Clear cache so presets are re-read from disk on next access."""
+    global _PRESETS_CACHE
+    _PRESETS_CACHE = None
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def list_presets() -> list[str]:
     """Return sorted list of available preset names."""
-    return sorted(PRESETS.keys())
+    return sorted(_load_presets().keys())
 
 
 def get_preset(name: str) -> dict | None:
     """Return the preset dict for *name*, or ``None`` if unknown."""
-    return PRESETS.get(name)
+    return _load_presets().get(name)
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +103,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def run_preset(argv: list[str] | None = None) -> None:
-    """Handle ``preset list`` and ``preset apply <name>``.
-
-    Called from the CLI or directly.
-    """
+    """Handle ``preset list`` and ``preset apply <name>``."""
     parser = _build_parser()
     if argv:
         expanded = resolve_subcmd(argv[0], PRESET_ACTIONS)
@@ -138,7 +115,7 @@ def run_preset(argv: list[str] | None = None) -> None:
         return
 
     if args.action == "list":
-        print("Available presets:")
+        print("Available presets (edit ~/.config/pkgeter/presets.yaml to add more):")
         for name in list_presets():
             print(f"  {name}")
         return
@@ -148,7 +125,7 @@ def run_preset(argv: list[str] | None = None) -> None:
         if preset is None:
             print(f"Error: unknown preset {args.name!r}", file=sys.stderr)
             sys.exit(1)
-            return  # unreachable in practice; placates mocked-sys.exit tests
+            return
 
         cfg = Config()
         cfg.set_backend(preset["backend"])

@@ -1,0 +1,53 @@
+debian-bookworm:
+  backend: debian
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bookworm
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: bookworm-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bookworm-updates
+      components: [main]
+
+debian-bullseye:
+  backend: debian
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bullseye
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: bullseye-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bullseye-updates
+      components: [main]
+
+centos-9:
+  backend: rpm
+  arch: x86_64
+  repos:
+    - name: baseos
+      type: rpm
+      url: https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os
+    - name: appstream
+      type: rpm
+      url: https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os
+    - name: epel
+      type: rpm
+      url: https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64

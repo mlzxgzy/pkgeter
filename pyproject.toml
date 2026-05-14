@@ -38,6 +38,9 @@ pkgeter = "pkgeter.__main__:main"
 [tool.setuptools.packages.find]
 include = ["pkgeter*"]
 
+[tool.setuptools.package-data]
+pkgeter = ["data/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
