@@ -109,7 +109,7 @@ def get_preset(name: str) -> dict | None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pkgeter preset")
-    sub = parser.add_subparsers(dest="action", required=True)
+    sub = parser.add_subparsers(dest="action")
 
     sub.add_parser("list", help="List available presets")
 
@@ -126,6 +126,9 @@ def run_preset(argv: list[str] | None = None) -> None:
     """
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if not args.action:
+        parser.print_help()
+        return
 
     if args.action == "list":
         print("Available presets:")

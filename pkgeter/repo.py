@@ -10,7 +10,7 @@ from pkgeter.config import Config
 
 def build_repo_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pkgeter repo")
-    sub = p.add_subparsers(dest="action", required=True)
+    sub = p.add_subparsers(dest="action")
     sub.add_parser("list", help="List configured repositories")
 
     add_p = sub.add_parser("add", help="Add a repository")
@@ -30,6 +30,9 @@ def build_repo_parser() -> argparse.ArgumentParser:
 def run_repo(argv: list[str]) -> int:
     parser = build_repo_parser()
     args = parser.parse_args(argv)
+    if not args.action:
+        parser.print_help()
+        return 0
     config = Config()
 
     if args.action == "list":

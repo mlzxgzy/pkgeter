@@ -42,13 +42,22 @@ class PkgeterREPL(cmd.Cmd):
             return False
         elif resolved == "get":
             from pkgeter.get import run_get
-            run_get(args)
+            try:
+                run_get(args)
+            except SystemExit:
+                pass
         elif resolved == "repo":
             from pkgeter.repo import run_repo
-            run_repo(args)
+            try:
+                run_repo(args)
+            except SystemExit:
+                pass
         elif resolved == "preset":
             from pkgeter.preset import run_preset
-            run_preset(args)
+            try:
+                run_preset(args)
+            except SystemExit:
+                pass
         return False
 
     def do_help(self, _: str) -> None:
