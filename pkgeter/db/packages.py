@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import sys
 from pathlib import Path
 from typing import Dict
 
@@ -98,8 +99,33 @@ def _parse_stanza(text: str) -> PackageInfo | None:
     return pkg if pkg.package else None
 
 
-def download_package_db(mirror: str, release: str, arch: str) -> Dict[str, PackageInfo]:
-    """High-level: download Packages.gz and parse into structured data."""
+def download_package_db(
+    mirror: str,
+    release: str,
+    arch: str,
+    use_cache: bool = True,
+    timeout: int = 60,
+) -> Dict[str, PackageInfo]:
+    """High-level: download (or load from cache) Packages.gz and parse into structured data.
+
+    When *use_cache* is ``True`` (default), the function stores downloaded files
+    under ``~/.config/pkgeter/sources/`` and uses SHA256 checksums from the
+    Debian ``Release`` file to avoid re-downloading unchanged data (like APT).
+    """
+    if use_cache:
+        from pkgeter.db.source_cache import SourceCache
+
+        cache = SourceCache(mirror, release, arch)
+        if cache.update(timeout=timeout):
+            raw = cache.read_packages_gz()
+            if raw is not None:
+                return parse_packages_file(raw)
+        # Cache update/download failed – fall through to direct download
+        print(
+            "Warning: cache unavailable, falling back to direct download",
+            file=sys.stderr,
+        )
+
     url = build_packages_url(mirror, release, arch)
-    raw = download_packages_gz(url)
+    raw = download_packages_gz(url, timeout)
     return parse_packages_file(raw)
