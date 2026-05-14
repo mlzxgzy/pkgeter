@@ -7,8 +7,50 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from pkgeter.cli import _promote_mirror, _try_load_package_db, build_parser
+from pkgeter.cli import _resolve
+from pkgeter.get import _promote_mirror, _try_load_package_db, build_parser
 from pkgeter.config import parse_mirror_entry
+
+
+# ---------------------------------------------------------------------------
+# _resolve — subcommand prefix matching
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_get():
+    assert _resolve("get") == "get"
+    assert _resolve("g") == "get"
+    assert _resolve("ge") == "get"
+
+
+def test_resolve_repo():
+    assert _resolve("repo") == "repo"
+    assert _resolve("r") == "repo"
+
+
+def test_resolve_preset():
+    assert _resolve("preset") == "preset"
+    assert _resolve("p") == "preset"
+
+
+def test_resolve_help():
+    assert _resolve("help") == "help"
+    assert _resolve("h") == "help"
+
+
+def test_resolve_exit():
+    assert _resolve("exit") == "exit"
+    assert _resolve("quit") == "exit"
+    assert _resolve("bye") == "exit"
+
+
+def test_resolve_unknown():
+    assert _resolve("xyz") is None
+
+
+def test_resolve_re_prefix():
+    """'re' prefix uniquely matches 'repo'."""
+    assert _resolve("re") == "repo"
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +157,7 @@ def test_first_mirror_succeeds():
         if mirror == "https://primary.example.com":
             return {"pkg1": "ok"}
 
-    with patch("pkgeter.cli.download_package_db", _fake_download):
+    with patch("pkgeter.get.download_package_db", _fake_download):
         db, used = _try_load_package_db(mirrors, "bookworm", "amd64")
         assert db == {"pkg1": "ok"}
         assert used == "https://primary.example.com"
@@ -132,7 +174,7 @@ def test_first_fails_fallback_succeeds():
             raise httpx.HTTPError("timeout")
         return {"pkg": "ok"}
 
-    with patch("pkgeter.cli.download_package_db", _fake_download):
+    with patch("pkgeter.get.download_package_db", _fake_download):
         db, used = _try_load_package_db(mirrors, "bookworm", "amd64")
         assert db == {"pkg": "ok"}
         assert used == "https://good.example.com"
@@ -146,7 +188,7 @@ def test_all_mirrors_fail():
     def _fake_download(mirror, release, arch, **kw):
         raise httpx.HTTPError("timeout")
 
-    with patch("pkgeter.cli.download_package_db", _fake_download):
+    with patch("pkgeter.get.download_package_db", _fake_download):
         db, used = _try_load_package_db(mirrors, "bookworm", "amd64")
         assert db is None
         assert used is None
@@ -168,7 +210,7 @@ def test_different_http_errors(exception):
     def _fake_download(mirror, release, arch, **kw):
         raise exception
 
-    with patch("pkgeter.cli.download_package_db", _fake_download):
+    with patch("pkgeter.get.download_package_db", _fake_download):
         db, used = _try_load_package_db(
             ["https://bad.example.com", "https://also-bad.example.com"],
             "bookworm", "amd64",
@@ -189,7 +231,7 @@ def test_mirror_at_override_used():
             return {"pkg": "ok"}
         return None
 
-    with patch("pkgeter.cli.download_package_db", _fake_download):
+    with patch("pkgeter.get.download_package_db", _fake_download):
         db, used = _try_load_package_db(
             ["https://security.debian.org/debian-security@bookworm-security"],
             "bookworm",  # global release, should be overridden
@@ -211,7 +253,7 @@ def test_mirror_at_override_fallback():
             return {"pkg": "ok"}
         return None
 
-    with patch("pkgeter.cli.download_package_db", _fake_download):
+    with patch("pkgeter.get.download_package_db", _fake_download):
         db, used = _try_load_package_db([
             "https://bad.example.com",
             "https://security.debian.org/debian-security@bookworm-security",
