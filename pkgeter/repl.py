@@ -57,18 +57,24 @@ class PkgeterREPL(cmd.Cmd):
                 run_get(args)
             except SystemExit:
                 pass
+            except Exception as exc:
+                print(f"Error: {exc}", file=sys.stderr)
         elif resolved == "repo":
             from pkgeter.repo import run_repo
             try:
                 run_repo(args)
             except SystemExit:
                 pass
+            except Exception as exc:
+                print(f"Error: {exc}", file=sys.stderr)
         elif resolved == "preset":
             from pkgeter.preset import run_preset
             try:
                 run_preset(args)
             except SystemExit:
                 pass
+            except Exception as exc:
+                print(f"Error: {exc}", file=sys.stderr)
         return False
 
     # ---- TAB completion: commands ----
