@@ -113,7 +113,9 @@ pkgeter preset apply centos-9
 |--------|---------|----------------------|
 | `debian-bookworm` | deb | main, security, updates |
 | `debian-bullseye` | deb | main, security, updates |
+| `debian-trixie`  | deb | main, security, updates |
 | `centos-9` | rpm | BaseOS, AppStream, EPEL |
+| `pve8` | deb | bookworm main, security, updates + pve-no-subscription |
 
 ## License
 

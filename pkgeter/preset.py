@@ -22,35 +22,47 @@ _BUILTIN_PRESETS = _PACKAGE_DIR / "data" / "presets.yaml"
 _USER_PRESETS = CONFIG_PATH.parent / "presets.yaml"
 
 # ---------------------------------------------------------------------------
-# Lazy loading from YAML
+# Lazy loading from YAML (built-in + user merged)
 # ---------------------------------------------------------------------------
 
 _PRESETS_CACHE: dict[str, Any] | None = None
 
 
-def _ensure_user_presets() -> Path:
-    """Copy built-in presets to config dir if user file doesn't exist."""
+def _load_presets() -> dict[str, Any]:
+    """Load presets, merging built-in defaults with user overrides.
+
+    Built-in presets come from ``pkgeter/data/presets.yaml``.
+    User presets live in ``~/.config/pkgeter/presets.yaml`` and override
+    built-in entries of the same name.  User-only entries are preserved.
+    """
+    global _PRESETS_CACHE
+    if _PRESETS_CACHE is not None:
+        return _PRESETS_CACHE
+
+    # 1. Read built-in presets
+    builtin: dict[str, Any] = {}
+    if _BUILTIN_PRESETS.exists():
+        raw = yaml.safe_load(_BUILTIN_PRESETS.read_text(encoding="utf-8")) or {}
+        for name, data in raw.items():
+            if isinstance(data, dict):
+                builtin[name] = data
+
+    # 2. Read (or create) user presets
     if not _USER_PRESETS.exists():
         _USER_PRESETS.parent.mkdir(parents=True, exist_ok=True)
         if _BUILTIN_PRESETS.exists():
             import shutil
             shutil.copy2(_BUILTIN_PRESETS, _USER_PRESETS)
-        else:
-            _USER_PRESETS.write_text("# pkgeter presets — add your own presets here\n")
-    return _USER_PRESETS
+        user_raw = {}
+    else:
+        user_raw = yaml.safe_load(_USER_PRESETS.read_text(encoding="utf-8")) or {}
 
+    # 3. Merge: user overrides built-in
+    merged = {**builtin, **user_raw}
 
-def _load_presets() -> dict[str, Any]:
-    """Load presets from user config dir (lazily cached)."""
-    global _PRESETS_CACHE
-    if _PRESETS_CACHE is not None:
-        return _PRESETS_CACHE
-
-    user_path = _ensure_user_presets()
-    raw = yaml.safe_load(user_path.read_text(encoding="utf-8")) or {}
-
+    # 4. Parse into internal format (RepoConfig objects)
     presets: dict[str, Any] = {}
-    for name, data in raw.items():
+    for name, data in merged.items():
         if not isinstance(data, dict):
             continue
         repos = [RepoConfig.from_dict(r) for r in data.get("repos", [])]

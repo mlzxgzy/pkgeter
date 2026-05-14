@@ -38,6 +38,26 @@ debian-bullseye:
       release: bullseye-updates
       components: [main]
 
+debian-trixie:
+  backend: debian
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: trixie
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: trixie-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: trixie-updates
+      components: [main]
+
 centos-9:
   backend: rpm
   arch: x86_64
@@ -51,3 +71,28 @@ centos-9:
     - name: epel
       type: rpm
       url: https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64
+
+pve8:
+  backend: debian
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bookworm
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: bookworm-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bookworm-updates
+      components: [main]
+    - name: pve-no-subscription
+      type: deb
+      url: https://download.proxmox.com/debian/pve
+      release: bookworm
+      components: [pve-no-subscription]
