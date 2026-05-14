@@ -6,6 +6,16 @@ import cmd
 import shlex
 import sys
 
+# Enable readline-based TAB completion.
+# On Windows, install 'pyreadline3' for completion support.
+try:
+    import readline  # noqa: F401  — Unix / macOS / pyreadline3
+except ImportError:
+    try:
+        import pyreadline3  # noqa: F401
+    except ImportError:
+        pass
+
 
 class PkgeterREPL(cmd.Cmd):
     intro = "\n    pkgeter — Offline package downloader\n    Type ? or help\n\n"
@@ -127,4 +137,10 @@ class PkgeterREPL(cmd.Cmd):
 
 
 def run_repl() -> None:
+    if "readline" not in sys.modules and "pyreadline3" not in sys.modules:
+        print(
+            "Tip: install 'pyreadline3' for TAB completion:\n"
+            "  pip install pkgeter[readline]\n",
+            file=sys.stderr,
+        )
     PkgeterREPL().cmdloop()

@@ -42,3 +42,4 @@ testpaths = ["tests"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+readline = ["pyreadline3"]
