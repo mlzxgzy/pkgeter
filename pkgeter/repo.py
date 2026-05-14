@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import sys
 
+from pkgeter.cli import resolve_subcmd
 from pkgeter.config import Config
+
+REPO_ACTIONS = ["list", "add", "remove"]
 
 
 def build_repo_parser() -> argparse.ArgumentParser:
@@ -29,6 +32,10 @@ def build_repo_parser() -> argparse.ArgumentParser:
 
 def run_repo(argv: list[str]) -> int:
     parser = build_repo_parser()
+    if argv:
+        expanded = resolve_subcmd(argv[0], REPO_ACTIONS)
+        if expanded:
+            argv = [expanded] + argv[1:]
     args = parser.parse_args(argv)
     if not args.action:
         parser.print_help()

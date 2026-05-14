@@ -6,8 +6,11 @@ import argparse
 import sys
 from typing import Any
 
+from pkgeter.cli import resolve_subcmd
 from pkgeter.config import Config
 from pkgeter.models import RepoConfig
+
+PRESET_ACTIONS = ["list", "apply"]
 
 # ---------------------------------------------------------------------------
 # Preset definitions
@@ -125,6 +128,10 @@ def run_preset(argv: list[str] | None = None) -> None:
     Called from the CLI or directly.
     """
     parser = _build_parser()
+    if argv:
+        expanded = resolve_subcmd(argv[0], PRESET_ACTIONS)
+        if expanded:
+            argv = [expanded] + argv[1:]
     args = parser.parse_args(argv)
     if not args.action:
         parser.print_help()

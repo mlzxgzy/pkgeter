@@ -24,6 +24,21 @@ def _resolve(cmd: str) -> str | None:
     return None
 
 
+def resolve_subcmd(cmd: str, choices: list[str]) -> str | None:
+    """Resolve a subcommand prefix to a unique choice.
+
+    Example: ``resolve_subcmd("l", ["list", "add", "remove"])`` → ``"list"``
+
+    Returns ``None`` when the prefix is unknown or ambiguous.
+    """
+    candidates = [c for c in choices if c.startswith(cmd)]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        print(f"Ambiguous subcommand '{cmd}': {', '.join(candidates)}", file=sys.stderr)
+    return None
+
+
 def run_cli() -> None:
     """Main CLI entry point — parse first argument and dispatch to subcommand."""
     if len(sys.argv) == 1:

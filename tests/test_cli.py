@@ -7,13 +7,13 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from pkgeter.cli import _resolve
+from pkgeter.cli import _resolve, resolve_subcmd
 from pkgeter.get import _promote_mirror, _try_load_package_db, build_parser
 from pkgeter.config import parse_mirror_entry
 
 
 # ---------------------------------------------------------------------------
-# _resolve — subcommand prefix matching
+# _resolve — top-level command prefix matching
 # ---------------------------------------------------------------------------
 
 
@@ -51,6 +51,32 @@ def test_resolve_unknown():
 def test_resolve_re_prefix():
     """'re' prefix uniquely matches 'repo'."""
     assert _resolve("re") == "repo"
+
+
+# ---------------------------------------------------------------------------
+# resolve_subcmd — subcommand prefix matching
+# ---------------------------------------------------------------------------
+
+
+def test_subcmd_resolve_list():
+    assert resolve_subcmd("l", ["list", "add", "remove"]) == "list"
+
+
+def test_subcmd_resolve_add():
+    assert resolve_subcmd("a", ["list", "add", "remove"]) == "add"
+
+
+def test_subcmd_resolve_remove():
+    assert resolve_subcmd("r", ["list", "add", "remove"]) == "remove"
+
+
+def test_subcmd_resolve_unknown():
+    assert resolve_subcmd("x", ["list", "add", "remove"]) is None
+
+
+def test_subcmd_resolve_ambiguous():
+    """'r' matches both 'remove' and 'refresh'."""
+    assert resolve_subcmd("r", ["list", "remove", "refresh"]) is None
 
 
 # ---------------------------------------------------------------------------
