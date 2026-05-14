@@ -14,6 +14,8 @@ class PkgeterREPL(cmd.Cmd):
     CORE_CMDS = {"get", "repo", "preset", "help", "exit"}
     ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo"}
 
+    # ---- Prefix resolution ----
+
     def _resolve(self, cmd: str) -> str | None:
         candidates = [c for c in self.CORE_CMDS if c.startswith(cmd)]
         if cmd in self.ALIASES:
@@ -23,6 +25,8 @@ class PkgeterREPL(cmd.Cmd):
         if len(candidates) > 1:
             print(f"Ambiguous command '{cmd}': {', '.join(sorted(candidates))}")
         return None
+
+    # ---- Command dispatch ----
 
     def default(self, line: str) -> bool:
         parts = shlex.split(line)
@@ -60,6 +64,46 @@ class PkgeterREPL(cmd.Cmd):
                 pass
         return False
 
+    # ---- TAB completion: commands ----
+
+    def completenames(self, text: str, *ignored) -> list[str]:
+        return sorted(c for c in self.CORE_CMDS if c.startswith(text))
+
+    # ---- TAB completion: get ----
+
+    def complete_get(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        flags = [
+            "--packages", "-p", "--distro", "--release", "-r",
+            "--arch", "-a", "--mirror", "-m", "--output", "-o", "--config",
+        ]
+        return [f for f in flags if f.startswith(text)]
+
+    # ---- TAB completion: repo ----
+
+    def complete_repo(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        actions = ["list", "add", "remove"]
+        parts = shlex.split(line)
+        # completing action (2nd word)
+        if len(parts) <= 2:
+            return [a for a in actions if a.startswith(text)]
+        return []
+
+    # ---- TAB completion: preset ----
+
+    def complete_preset(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        parts = shlex.split(line)
+        words = len(parts)
+        # completing action (2nd word)
+        if words <= 2:
+            return [a for a in ["list", "apply"] if a.startswith(text)]
+        # completing preset name after "apply"
+        if words >= 3 and parts[1] in ("apply", "a"):
+            from pkgeter.preset import list_presets
+            return sorted(p for p in list_presets() if p.startswith(text))
+        return []
+
+    # ---- help ----
+
     def do_help(self, _: str) -> None:
         print("Commands (prefix matching: g=get, r=repo, pr=preset):")
         print("  get (g)    <options>   Download packages with dependencies")
@@ -68,14 +112,18 @@ class PkgeterREPL(cmd.Cmd):
         print("  help (h)               Show this help")
         print("  exit (ex)              Exit")
         print()
-        print("For subcommand help: get --help, repo --help, preset --help")
+        print("Subcommands can also be prefix-matched (l=list, a=add).")
+        print("Press TAB twice to see all options.")
+        print()
+        print("Examples:")
+        print('  g -p nginx --distro centos-9')
+        print('  r l')
+        print('  r a --name myrepo --type deb --url https://example.com')
+        print('  p a debian-bookworm')
 
     def do_exit(self, _: str) -> bool:
         print("Bye.")
         return True
-
-    def completenames(self, text: str, *ignored) -> list[str]:
-        return [c for c in self.CORE_CMDS if c.startswith(text)]
 
 
 def run_repl() -> None:
