@@ -12,7 +12,7 @@ def test_downloader_creates_dir(tmp_path):
     dest = tmp_path / "debs"
     pkg_data = {
         "libc6": (
-            "pool/main/libc6/libc6_2.36-9_amd64.deb",
+            "https://example.com/debian/pool/main/libc6/libc6_2.36-9_amd64.deb",
             "abc" * 21 + "a",
             1024,
         ),
@@ -28,7 +28,7 @@ def test_downloader_creates_dir(tmp_path):
         import hashlib
         real_sha = hashlib.sha256(b"fake-deb-content").hexdigest()
         pkg_data["libc6"] = (
-            "pool/main/libc6/libc6_2.36-9_amd64.deb",
+            "https://example.com/debian/pool/main/libc6/libc6_2.36-9_amd64.deb",
             real_sha,
             1024,
         )
@@ -45,7 +45,7 @@ def test_downloader_sha256_mismatch(tmp_path):
     dest = tmp_path / "debs"
     pkg_data = {
         "libc6": (
-            "pool/main/libc6/libc6_2.36-9_amd64.deb",
+            "https://example.com/debian/pool/main/libc6/libc6_2.36-9_amd64.deb",
             "x" * 64,
             1024,
         ),

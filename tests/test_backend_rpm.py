@@ -108,8 +108,8 @@ def test_parse_primary():
     assert pkg.depends[0][0].name == "libc.so.6()(64bit)"
     assert pkg.depends[1][0].name == "krb5-libs"
 
-    # Provides only includes the entry matching the package name
-    assert pkg.provides == ["openssl"]
+    # Provides includes all entries (self-provides + virtual capabilities)
+    assert pkg.provides == ["openssl", "libssl.so.10()(64bit)"]
 
 
 def test_parse_primary_with_epoch():

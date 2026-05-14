@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -74,6 +76,12 @@ class _MockClient:
         if url in self._responses:
             return self._responses[url]
         return _MockResponse(b"not found", 404)
+
+
+def _age_cache(path: Path, hours: float = 2) -> None:
+    """Set mtime on *path* so the 1-hour cooldown doesn't skip it."""
+    old = time.time() - hours * 3600
+    os.utime(path, (old, old))
 
 
 def make_cache(cache_dir: Path) -> SourceCache:
@@ -162,6 +170,7 @@ class TestSourceCacheUpdate:
 
         (tmp_path / "Release").write_text(release_text)
         (tmp_path / "Packages.gz").write_bytes(dummy_gz)
+        _age_cache(tmp_path / "Packages.gz")  # bypass 1-hour cooldown
 
         cache = make_cache(tmp_path)
         with patch(
@@ -182,6 +191,7 @@ class TestSourceCacheUpdate:
         release_text = _fake_release_content("amd64", new_sha)
 
         (tmp_path / "Packages.gz").write_bytes(old_gz)  # stale
+        _age_cache(tmp_path / "Packages.gz")  # bypass 1-hour cooldown
 
         cache = make_cache(tmp_path)
         with patch(
@@ -199,6 +209,7 @@ class TestSourceCacheUpdate:
         dummy_gz = make_dummy_gz(b"stale but usable")
         (tmp_path / "Release").write_text("stale release")
         (tmp_path / "Packages.gz").write_bytes(dummy_gz)
+        _age_cache(tmp_path / "Packages.gz")  # bypass 1-hour cooldown
 
         cache = make_cache(tmp_path)
         with patch(
@@ -242,6 +253,7 @@ class TestSourceCacheUpdate:
 
         (tmp_path / "Release").write_text(release_text)
         (tmp_path / "Packages.gz").write_bytes(dummy_gz)
+        _age_cache(tmp_path / "Packages.gz")  # bypass 1-hour cooldown
 
         cache = make_cache(tmp_path)
         with patch(

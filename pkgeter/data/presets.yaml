@@ -17,6 +17,24 @@ debian-bookworm:
       url: https://deb.debian.org/debian
       release: bookworm-updates
       components: [main]
+  mirrors:
+    cn:
+      repos:
+        - name: main
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: bookworm
+          components: [main]
+        - name: security
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian-security
+          release: bookworm-security
+          components: [main]
+        - name: updates
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: bookworm-updates
+          components: [main]
 
 debian-bullseye:
   backend: apt
@@ -37,6 +55,24 @@ debian-bullseye:
       url: https://deb.debian.org/debian
       release: bullseye-updates
       components: [main]
+  mirrors:
+    cn:
+      repos:
+        - name: main
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: bullseye
+          components: [main]
+        - name: security
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian-security
+          release: bullseye-security
+          components: [main]
+        - name: updates
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: bullseye-updates
+          components: [main]
 
 debian-trixie:
   backend: apt
@@ -57,6 +93,24 @@ debian-trixie:
       url: https://deb.debian.org/debian
       release: trixie-updates
       components: [main]
+  mirrors:
+    cn:
+      repos:
+        - name: main
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: trixie
+          components: [main]
+        - name: security
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian-security
+          release: trixie-security
+          components: [main]
+        - name: updates
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: trixie-updates
+          components: [main]
 
 centos-9:
   backend: rpm
@@ -71,6 +125,18 @@ centos-9:
     - name: epel
       type: rpm
       url: https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64
+  mirrors:
+    cn:
+      repos:
+        - name: baseos
+          type: rpm
+          url: https://mirrors.ustc.edu.cn/centos-stream/9-stream/BaseOS/x86_64/os
+        - name: appstream
+          type: rpm
+          url: https://mirrors.ustc.edu.cn/centos-stream/9-stream/AppStream/x86_64/os
+        - name: epel
+          type: rpm
+          url: https://mirrors.ustc.edu.cn/epel/9/Everything/x86_64
 
 pve8:
   backend: apt
@@ -96,3 +162,37 @@ pve8:
       url: https://download.proxmox.com/debian/pve
       release: bookworm
       components: [pve-no-subscription]
+  mirrors:
+    cn:
+      repos:
+        - name: main
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: bookworm
+          components: [main]
+        - name: security
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian-security
+          release: bookworm-security
+          components: [main]
+        - name: updates
+          type: deb
+          url: https://mirrors.ustc.edu.cn/debian
+          release: bookworm-updates
+          components: [main]
+        - name: pve-no-subscription
+          type: deb
+          url: https://mirrors.ustc.edu.cn/proxmox/debian/pve
+          release: bookworm
+          components: [pve-no-subscription]
+
+kylin-V10:
+  backend: rpm
+  arch: x86_64
+  repos:
+    - name: base
+      type: rpm
+      url: https://update.cs2c.com.cn/NS/V10/V10SP3-2403/os/adv/lic/base/x86_64
+    - name: updates
+      type: rpm
+      url: https://update.cs2c.com.cn/NS/V10/V10SP3-2403/os/adv/lic/updates/x86_64
