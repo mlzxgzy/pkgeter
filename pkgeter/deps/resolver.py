@@ -26,7 +26,8 @@ class Resolver:
         """Resolve all dependencies for the given package names.
 
         Returns a list of package names in dependency order
-        (dependencies before dependents), including the target packages
+        (dependencies before dependentsls
+      ), including the target packages
         themselves. Can be used directly for dpkg -i ordering.
         """
         result: List[str] = []
