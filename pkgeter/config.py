@@ -157,3 +157,19 @@ class Config:
             return
         self.data["mirrors"] = mirrors
         self.data["mirror"] = mirrors[0]
+
+    def get_repos(self) -> list[dict]:
+        """Return the list of configured repositories."""
+        return list(self.data.get("repos", []))
+
+    def set_repos(self, repos: list[dict]) -> None:
+        """Set the list of configured repositories."""
+        self.data["repos"] = list(repos)
+
+    def get_backend(self) -> str:
+        """Return the configured package-manager backend."""
+        return str(self.data.get("backend", ""))
+
+    def set_backend(self, backend: str) -> None:
+        """Set the package-manager backend."""
+        self.data["backend"] = backend

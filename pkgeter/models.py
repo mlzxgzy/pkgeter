@@ -34,6 +34,41 @@ class PackageInfo:
     description: str = ""
 
 
+@dataclass
+class RepoConfig:
+    """Configuration for a single package repository (deb or rpm)."""
+
+    name: str
+    type: str = "deb"  # "deb" | "rpm"
+    url: str = ""
+    release: str = ""
+    components: list[str] = field(default_factory=list)
+    arch: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to a JSON/YAML-compatible dict."""
+        return {
+            "name": self.name,
+            "type": self.type,
+            "url": self.url,
+            "release": self.release,
+            "components": list(self.components),
+            "arch": self.arch,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> RepoConfig:
+        """Deserialize from a dict (backwards-compatible with missing keys)."""
+        return cls(
+            name=d.get("name", ""),
+            type=d.get("type", "deb"),
+            url=d.get("url", ""),
+            release=d.get("release", ""),
+            components=list(d.get("components", [])),
+            arch=d.get("arch", ""),
+        )
+
+
 def parse_depends_line(line: str) -> list[list[Dependency]]:
     """Parse a Debian Depends line into AND-of-OR groups.
 
