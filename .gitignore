@@ -13,7 +13,6 @@ config.yaml
 CLAUDE.md
 
 # IDE
-docs
 .vscode/
 .idea/
 
