@@ -96,14 +96,9 @@ def list_presets() -> list[str]:
     return sorted(PRESETS.keys())
 
 
-def get_preset(name: str) -> dict:
-    """Return the preset dict for *name*.
-
-    Raises ``KeyError`` if the name is unknown.
-    """
-    if name not in PRESETS:
-        raise KeyError(f"Unknown preset: {name!r}. Available: {', '.join(list_presets())}")
-    return PRESETS[name]
+def get_preset(name: str) -> dict | None:
+    """Return the preset dict for *name*, or ``None`` if unknown."""
+    return PRESETS.get(name)
 
 
 # ---------------------------------------------------------------------------
@@ -138,10 +133,9 @@ def run_preset(argv: list[str] | None = None) -> None:
         return
 
     if args.action == "apply":
-        try:
-            preset = get_preset(args.name)
-        except KeyError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+        preset = get_preset(args.name)
+        if preset is None:
+            print(f"Error: unknown preset {args.name!r}", file=sys.stderr)
             sys.exit(1)
             return  # unreachable in practice; placates mocked-sys.exit tests
 

@@ -228,10 +228,9 @@ class TestGetPreset:
         preset = get_preset("debian-bookworm")
         assert preset["backend"] == "debian"
 
-    def test_unknown_preset_raises(self):
-        """get_preset raises KeyError for unknown preset names."""
-        with pytest.raises(KeyError, match="foobar"):
-            get_preset("foobar")
+    def test_unknown_preset_returns_none(self):
+        """get_preset returns None for unknown preset names."""
+        assert get_preset("foobar") is None
 
 
 # ---------------------------------------------------------------------------
