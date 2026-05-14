@@ -1,18 +1,25 @@
-# pkgeter <small>v1.0</small>
+# pkgeter <small>v1.1</small>
 
 **English** | [中文](README_CH.md)
 
-**Offline Debian package downloader** — resolve dependencies, download `.deb` files, and generate an offline install script.
+**Offline package downloader** — supports **Debian/apt** and **RPM/dnf** (CentOS Stream). Resolve dependency trees, download `.deb` or `.rpm` files, and generate an offline install script.
 
-Works on any platform (Linux, Windows, macOS) — useful when you need to install Debian packages on an air-gapped or offline machine.
+Works on any platform (Linux, Windows, macOS) — useful when you need to install packages on an air-gapped or offline machine.
 
 ## Features
 
+- **Dual backend** — supports Debian (`dpkg`) and RPM (`rpm`) based distributions
+- **Distribution presets** — one-command selection: `--distro debian-bookworm`, `--distro centos-9`
+- **Interactive REPL** — run `pkgeter` with no arguments to enter a switch-style CLI with prefix matching and TAB completion
+- **Multi-repo merge** — automatically combines repositories (e.g., main + security, BaseOS + AppStream + EPEL)
 - **Dependency resolution** — recursively resolves all dependencies for the target packages
 - **Skip installed packages** — optionally provide a `dpkg -l` output to skip already-installed packages
-- **SHA256 verification** — validates every downloaded `.deb` file
-- **Offline install script** — auto-generates `install.sh` that runs `dpkg -i` in dependency order
+- **SHA256 verification** — validates every downloaded `.deb` or `.rpm` file
+- **Source caching** — caches repository metadata with SHA256 validation (like APT), only re-downloads when changed
+- **Offline install script** — auto-generates `install.sh` that runs `dpkg -i` or `rpm -ivh` in dependency order
+- **Multiple mirrors** — specify fallback mirrors, tried in order until one succeeds
 - **Persistent config** — preferences saved to `~/.config/pkgeter/config.yaml`
+- **Repo management** — add, list, and remove custom repositories via `pkgeter repo`
 
 ## Installation
 ### From source
@@ -26,31 +33,46 @@ pip install -e .
 ## Usage
 
 ```bash
-# Download vim and all its dependencies
-pkgeter -p vim
+# Interactive REPL (no arguments)
+pkgeter
 
-# Download multiple packages
-pkgeter -p nginx curl git
+# Download packages using a distribution preset
+pkgeter get -p nginx --distro debian-bookworm
+pkgeter get -p nginx --distro centos-9
+pkgeter get -p nginx --distro debian-bullseye
+
+# Short prefix forms work too
+pkgeter g -p nginx --distro centos-9
+
+# Legacy usage (backward compatible)
+pkgeter get -p vim
+pkgeter get -p nginx -r bookworm -a amd64
+
+# Specify multiple mirrors (tried in order)
+pkgeter get -p nginx -m https://deb.debian.org/debian -m https://ftp.debian.org/debian
+
+# Manage repositories
+pkgeter repo list
+pkgeter repo add --name myrepo --type deb --url https://example.com/debian --release bookworm
+pkgeter repo remove myrepo
+
+# List and apply distribution presets
+pkgeter preset list
+pkgeter preset apply centos-9
 
 # Specify a custom output directory
-pkgeter -p python3 -o ./my-output
-
-# Use a specific Debian release and architecture
-pkgeter -p docker.io -r bookworm -a arm64
-
-# Skip packages already installed on a target machine
-pkgeter -p nginx --dpkg-list /path/to/dpkg-l-output.txt
-
-# Use a custom config file
-pkgeter -p vim --config /path/to/config.yaml
+pkgeter get -p python3 -o ./my-output
 ```
 
 ## Output
 
-All `.deb` files are placed in a `debs/` subdirectory within the output directory. An `install.sh` script is generated that runs `dpkg -i` in dependency order. On the target machine:
+For Debian mode, all `.deb` files are placed in a `debs/` subdirectory. For RPM mode, all `.rpm` files are placed in a `rpms/` subdirectory. An `install.sh` script is generated that runs `dpkg -i` or `rpm -ivh` in dependency order.
 
 ```bash
-# Copy the debs/ directory and install.sh to the target machine, then:
+# Debian: copy the debs/ directory and install.sh to the target machine, then:
+sudo bash install.sh
+
+# RPM: copy the rpms/ directory and install.sh to the target machine, then:
 sudo bash install.sh
 ```
 
@@ -58,23 +80,40 @@ sudo bash install.sh
 
 pkgeter stores persistent preferences at `~/.config/pkgeter/config.yaml`. This file is automatically created when you run the tool.
 
-Example config:
-
 ```yaml
-release: bookworm
+backend: debian
 arch: amd64
-mirror: https://deb.debian.org/debian
-output_dir: ./output
+repos:
+  - name: debian-main
+    type: deb
+    url: https://deb.debian.org/debian
+    release: bookworm
+  - name: debian-security
+    type: deb
+    url: https://security.debian.org/debian-security
+    release: bookworm-security
 ```
 
-CLI flags override config file values. If no config file exists, sensible defaults are used (on Linux systems, release and arch are auto-detected).
+CLI flags override config file values. Apply a preset to quickly populate the config:
+
+```bash
+pkgeter preset apply centos-9
+```
 
 ## How It Works
 
-1. **Download package database** — fetches `Packages.gz` from the specified Debian mirror
+1. **Download package database** — fetches metadata from configured repositories (Packages.gz for Debian, repomd.xml + primary.xml.gz for RPM)
 2. **Parse dependency tree** — recursively resolves all required packages
-3. **Download `.deb` files** — downloads each package with SHA256 verification
-4. **Generate output** — creates `debs/` directory with `install.sh`
+3. **Download package files** — downloads each package with SHA256 verification
+4. **Generate output** — creates `debs/` or `rpms/` directory with `install.sh`
+
+## Distribution Presets
+
+| Preset | Backend | Included Repositories |
+|--------|---------|----------------------|
+| `debian-bookworm` | deb | main, security, updates |
+| `debian-bullseye` | deb | main, security, updates |
+| `centos-9` | rpm | BaseOS, AppStream, EPEL |
 
 ## License
 

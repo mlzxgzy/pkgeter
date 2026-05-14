@@ -4,16 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pkgeter"
-version = "1.0.0"
-description = "Offline Debian package downloader - resolve deps, download .deb, generate offline install script"
+version = "1.1.0"
+description = "Offline package downloader - support Debian/apt and RPM/dnf, resolve deps, download packages, generate offline install script"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-keywords = ["debian", "offline", "package", "apt", "downloader"]
+keywords = ["debian", "rpm", "centos", "offline", "package", "apt", "dnf", "yum", "downloader"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

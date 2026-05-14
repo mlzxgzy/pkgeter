@@ -1,18 +1,24 @@
-# pkgeter <small>v1.0</small>
+# pkgeter <small>v1.1</small>
 
 **中文** | [English](README.md)
 
-**离线 Debian 包下载工具** — 解析依赖、下载 `.deb` 文件，并生成离线安装脚本。
+**离线包下载工具** — 支持 **Debian/apt** 和 **RPM/dnf**（CentOS Stream）。解析依赖树、下载 `.deb` 或 `.rpm` 文件，并生成离线安装脚本。
 
-跨平台支持（Linux、Windows、macOS）—— 当需要在离线机器上安装 Debian 包时非常有用。
+跨平台支持（Linux、Windows、macOS）—— 当需要在离线机器上安装包时非常有用。
 
 ## 特性
 
+- **双后端** — 支持 Debian（`dpkg`）和 RPM（`rpm`）系发行版
+- **发行版预设** — 一条命令选择：`--distro debian-bookworm`、`--distro centos-9`
+- **交互式 REPL** — 直接运行 `pkgeter` 进入类交换机命令行，支持前缀匹配和 TAB 补全
+- **多源合并** — 自动组合多个仓库（如 main + security，BaseOS + AppStream + EPEL）
 - **依赖解析** — 递归解析目标包的所有依赖
-- **跳过已安装包** — 可提供 `dpkg -l` 输出，跳过已安装的包
-- **SHA256 校验** — 验证每个下载的 `.deb` 文件
-- **离线安装脚本** — 自动生成按依赖顺序安装的 `install.sh`
+- **SHA256 校验** — 验证每个下载的 `.deb` 或 `.rpm` 文件
+- **源缓存** — 缓存仓库元数据并用 SHA256 校验（类似 APT），只下载变更部分
+- **离线安装脚本** — 自动生成按依赖顺序安装的 `install.sh`（`dpkg -i` 或 `rpm -ivh`）
+- **多镜像源** — 可指定多个镜像，按顺序尝试，直到成功
 - **持久配置** — 配置保存在 `~/.config/pkgeter/config.yaml`
+- **源管理** — 通过 `pkgeter repo` 添加、列出、删除自定义源
 
 ## 安装
 ### 从源码安装
@@ -26,31 +32,43 @@ pip install -e .
 ## 使用方法
 
 ```bash
-# 下载 vim 及其所有依赖
-pkgeter -p vim
+# 交互式 REPL（无参数）
+pkgeter
 
-# 下载多个包
-pkgeter -p nginx curl git
+# 使用发行版预设下载包
+pkgeter get -p nginx --distro debian-bookworm
+pkgeter get -p nginx --distro centos-9
+pkgeter get -p nginx --distro debian-bullseye
 
-# 指定自定义输出目录
-pkgeter -p python3 -o ./my-output
+# 支持前缀简写
+pkgeter g -p nginx --distro centos-9
 
-# 指定 Debian 版本和架构
-pkgeter -p docker.io -r bookworm -a arm64
+# 兼容旧用法
+pkgeter get -p vim
+pkgeter get -p nginx -r bookworm -a amd64
 
-# 跳过目标机器上已安装的包
-pkgeter -p nginx --dpkg-list /path/to/dpkg-l-output.txt
+# 指定多个镜像（按顺序尝试）
+pkgeter get -p nginx -m https://deb.debian.org/debian -m https://ftp.debian.org/debian
 
-# 使用自定义配置文件
-pkgeter -p vim --config /path/to/config.yaml
+# 管理仓库源
+pkgeter repo list
+pkgeter repo add --name myrepo --type deb --url https://example.com/debian --release bookworm
+pkgeter repo remove myrepo
+
+# 查看和应用发行版预设
+pkgeter preset list
+pkgeter preset apply centos-9
+
+# 指定输出目录
+pkgeter get -p python3 -o ./my-output
 ```
 
 ## 输出
 
-所有 `.deb` 文件将输出到指定目录下的 `debs/` 子目录中，并生成 `install.sh`，按依赖顺序执行 `dpkg -i` 安装。在目标机器上：
+Debian 模式下所有 `.deb` 文件输出到 `debs/` 子目录，RPM 模式下所有 `.rpm` 文件输出到 `rpms/` 子目录。并生成 `install.sh`，按依赖顺序执行 `dpkg -i` 或 `rpm -ivh` 安装。
 
 ```bash
-# 将 debs/ 目录和 install.sh 复制到目标机器，然后：
+# 将 debs/ 或 rpms/ 目录和 install.sh 复制到目标机器，然后：
 sudo bash install.sh
 ```
 
@@ -58,23 +76,40 @@ sudo bash install.sh
 
 pkgeter 将持久配置保存在 `~/.config/pkgeter/config.yaml`。运行工具时会自动创建此文件。
 
-配置示例：
-
 ```yaml
-release: bookworm
+backend: debian
 arch: amd64
-mirror: https://deb.debian.org/debian
-output_dir: ./output
+repos:
+  - name: debian-main
+    type: deb
+    url: https://deb.debian.org/debian
+    release: bookworm
+  - name: debian-security
+    type: deb
+    url: https://security.debian.org/debian-security
+    release: bookworm-security
 ```
 
-命令行参数优先级高于配置文件。如果配置文件不存在，将使用合理的默认值（Linux 系统会尝试自动检测本机的 release 和 arch）。
+命令行参数优先级高于配置文件。可用预设快速填充配置：
+
+```bash
+pkgeter preset apply centos-9
+```
 
 ## 工作原理
 
-1. **下载包数据库** — 从指定的 Debian 镜像源获取 `Packages.gz`
+1. **下载包数据库** — 从配置的源获取元数据（Debian 用 Packages.gz，RPM 用 repomd.xml + primary.xml.gz）
 2. **解析依赖树** — 递归解析所有需要的包
-3. **下载 `.deb` 文件** — 下载每个包并进行 SHA256 校验
-4. **生成输出** — 生成 `debs/` 目录和 `install.sh` 安装脚本
+3. **下载包文件** — 下载每个包并进行 SHA256 校验
+4. **生成输出** — 生成 `debs/` 或 `rpms/` 目录和 `install.sh` 安装脚本
+
+## 发行版预设
+
+| 预设 | 后端 | 包含仓库 |
+|------|------|---------|
+| `debian-bookworm` | deb | main, security, updates |
+| `debian-bullseye` | deb | main, security, updates |
+| `centos-9` | rpm | BaseOS, AppStream, EPEL |
 
 ## 许可证
 
