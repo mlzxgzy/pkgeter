@@ -173,7 +173,7 @@ def test_package_not_found():
 
 
 def test_system_deps_skipped():
-    """System-provided deps (absolute paths, .so) are skipped."""
+    """System-provided deps (absolute paths, .so) with no provider are skipped."""
     db = {
         "app": _make_pkg("app", depends=[
             [Dependency("/bin/sh")],
@@ -183,6 +183,80 @@ def test_system_deps_skipped():
     }
     trees = build_dependency_tree(["app"], db)
     assert trees[0].children == []
+
+
+def test_soname_dep_resolved_via_provides():
+    """Soname dependency with a provider in the DB is resolved, not skipped."""
+    db = {
+        "nginx-mod": _make_pkg("nginx-mod", depends=[
+            [Dependency("libunwind.so.8()(64bit)")],
+        ]),
+        "libunwind": _make_pkg("libunwind", "1.3.1",
+                               provides=["libunwind.so.8()(64bit)"]),
+    }
+    trees = build_dependency_tree(["nginx-mod"], db)
+    root = trees[0]
+    assert len(root.children) == 1
+    child = root.children[0]
+    assert child.name == "libunwind.so.8()(64bit)"
+    assert child.is_virtual is True
+    assert child.provider == "libunwind"
+
+
+def test_soname_dep_resolved_via_external_index():
+    """Soname dependency resolved through an external ProvidesIndex."""
+    from pkgeter.deps.provides_index import ProvidesIndex
+
+    db = {
+        "nginx-mod": _make_pkg("nginx-mod", depends=[
+            [Dependency("libunwind.so.8()(64bit)")],
+        ]),
+        "libunwind": _make_pkg("libunwind", "1.3.1"),
+    }
+    idx = ProvidesIndex()
+    idx.build_from_packages({
+        "libunwind": _make_pkg("libunwind", "1.3.1",
+                               provides=["libunwind.so.8()(64bit)"]),
+    })
+    trees = build_dependency_tree(["nginx-mod"], db, external_index=idx)
+    root = trees[0]
+    assert len(root.children) == 1
+    child = root.children[0]
+    assert child.name == "libunwind.so.8()(64bit)"
+    assert child.is_virtual is True
+    assert child.provider == "libunwind"
+
+
+def test_soname_transitive_deps_in_tree():
+    """Full chain: nginx → nginx-mod → libunwind.so → libunwind → libgcc."""
+    db = {
+        "nginx": _make_pkg("nginx", depends=[
+            [Dependency("nginx-mod")],
+        ]),
+        "nginx-mod": _make_pkg("nginx-mod", depends=[
+            [Dependency("libunwind.so.8()(64bit)")],
+        ]),
+        "libunwind": _make_pkg("libunwind", "1.3.1",
+                               depends=[[Dependency("libgcc")]],
+                               provides=["libunwind.so.8()(64bit)"]),
+        "libgcc": _make_pkg("libgcc"),
+    }
+    trees = build_dependency_tree(["nginx"], db)
+    root = trees[0]
+    assert root.name == "nginx"
+    # nginx → nginx-mod
+    assert len(root.children) == 1
+    mod_node = root.children[0]
+    assert mod_node.name == "nginx-mod"
+    # nginx-mod → libunwind.so.8()(64bit) (virtual)
+    assert len(mod_node.children) == 1
+    so_node = mod_node.children[0]
+    assert so_node.name == "libunwind.so.8()(64bit)"
+    assert so_node.is_virtual is True
+    assert so_node.provider == "libunwind"
+    # virtual node inherits libunwind's children → libgcc
+    assert len(so_node.children) == 1
+    assert so_node.children[0].name == "libgcc"
 
 
 from pathlib import Path

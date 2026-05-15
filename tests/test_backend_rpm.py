@@ -16,6 +16,10 @@ REPOMD_XML = """\
     <location href="repodata/abc123-primary.xml.gz"/>
     <checksum type="sha256">e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855</checksum>
   </data>
+  <data type="filelists">
+    <location href="repodata/def456-filelists.xml.gz"/>
+    <checksum type="sha256">aabbccdd</checksum>
+  </data>
 </repomd>
 """
 
@@ -64,10 +68,16 @@ def test_backend_name():
 
 
 def test_parse_repomd():
-    """``_parse_repomd`` extracts primary href and SHA256 from repomd.xml."""
-    href, sha256 = RpmBackend._parse_repomd(REPOMD_XML)
+    """``_parse_repomd`` extracts primary and filelists from repomd.xml."""
+    meta = RpmBackend._parse_repomd(REPOMD_XML)
+    assert "primary" in meta
+    href, sha256 = meta["primary"]
     assert href == "repodata/abc123-primary.xml.gz"
     assert sha256 == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    assert "filelists" in meta
+    fl_href, fl_sha = meta["filelists"]
+    assert fl_href == "repodata/def456-filelists.xml.gz"
+    assert fl_sha == "aabbccdd"
 
 
 def test_parse_repomd_no_primary():

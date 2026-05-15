@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from pkgeter.db.dpkg_list import parse_dpkg_list
+from pkgeter.db.dpkg_list import parse_dpkg_list, parse_dpkg_list_file
 
 
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -53,3 +53,35 @@ Desired=Unknown/Install/Remove/Purge/Hold
 +++-=================================-=========================-============-==========================================
 """
     assert parse_dpkg_list(text) == set()
+
+
+def test_parse_dpkg_list_line_with_few_parts():
+    """Short status lines (status + name only) should not crash."""
+    text = "ii  short-pkg"
+    pkgs = parse_dpkg_list(text)
+    assert "short-pkg" in pkgs
+
+
+def test_parse_dpkg_list_mixed_newlines():
+    """Empty lines mixed with status lines are handled."""
+    text = "\n\nii  pkg-a 1.0 amd64 desc\n\nii  pkg-b 2.0 amd64 desc\n"
+    pkgs = parse_dpkg_list(text)
+    assert "pkg-a" in pkgs
+    assert "pkg-b" in pkgs
+    assert len(pkgs) == 2
+
+
+def test_parse_dpkg_list_file(tmp_path: Path):
+    """parse_dpkg_list_file reads and parses a file on disk."""
+    content = (
+        "Desired=Unknown/Install/Remove/Purge/Hold\n"
+        "||/ Name\n"
+        "+++-============\n"
+        "ii  file-pkg 1.0 amd64 a file based package\n"
+    )
+    path = tmp_path / "dpkg-list.txt"
+    path.write_text(content, encoding="utf-8")
+
+    pkgs = parse_dpkg_list_file(path)
+    assert "file-pkg" in pkgs
+    assert len(pkgs) == 1

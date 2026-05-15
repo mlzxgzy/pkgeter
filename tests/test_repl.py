@@ -134,6 +134,10 @@ def test_complete_preset_actions():
 
 def test_complete_preset_apply_names():
     repl = PkgeterREPL()
+    # Without hyphen: hierarchical completion returns system prefix
     matches = repl.complete_preset("deb", 'preset apply deb', 12, 15)
+    assert "debian-" in matches
+    # With hyphen: hierarchical completion returns full preset names
+    matches = repl.complete_preset("debian-b", 'preset apply debian-b', 12, 20)
     assert "debian-bookworm" in matches
     assert "debian-bullseye" in matches

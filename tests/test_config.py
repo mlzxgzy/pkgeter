@@ -126,6 +126,129 @@ def test_set_mirrors_empty_noop(tmp_path: Path):
     assert config.get("mirrors") == ["https://old.example.com/debian"]
 
 
+# ---------------------------------------------------------------------------
+# Config get/set for various settings
+# ---------------------------------------------------------------------------
+
+
+def test_get_default_value(tmp_path: Path):
+    """Config.get returns default when key is missing."""
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, {})
+    config = Config(cfg_path)
+    assert config.get("nonexistent", "fallback") == "fallback"
+
+
+def test_get_default_none(tmp_path: Path):
+    """Config.get returns None when key is missing and no default given."""
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, {})
+    config = Config(cfg_path)
+    assert config.get("nonexistent") is None
+
+
+def test_set_and_get(tmp_path: Path):
+    """Config.set stores a value retrievable by Config.get."""
+    cfg_path = tmp_path / "config.yaml"
+    config = Config(cfg_path)
+    config.set("custom_key", "custom_value")
+    assert config.get("custom_key") == "custom_value"
+
+
+def test_get_repos_default(tmp_path: Path):
+    """Config with no repos returns empty list."""
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, {})
+    config = Config(cfg_path)
+    assert config.get_repos() == []
+
+
+def test_set_repos_and_get(tmp_path: Path):
+    """Setting repos then getting them returns the same list."""
+    cfg_path = tmp_path / "config.yaml"
+    config = Config(cfg_path)
+    repos = [
+        {"name": "main", "type": "deb", "url": "https://deb.debian.org/debian"},
+    ]
+    config.set_repos(repos)
+    assert config.get_repos() == repos
+
+
+def test_set_repos_persists(tmp_path: Path):
+    """Repos survive save/reload cycle."""
+    cfg_path = tmp_path / "config.yaml"
+    config = Config(cfg_path)
+    config.set_repos([
+        {"name": "main", "type": "deb", "url": "https://deb.debian.org/debian"},
+    ])
+    config.save()
+
+    config2 = Config(cfg_path)
+    assert len(config2.get_repos()) == 1
+    assert config2.get_repos()[0]["name"] == "main"
+
+
+def test_get_backend_default(tmp_path: Path):
+    """Default backend is 'apt'."""
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, {})
+    config = Config(cfg_path)
+    assert config.get_backend() == "apt"
+
+
+def test_set_backend(tmp_path: Path):
+    """Setting backend is reflected in get_backend."""
+    cfg_path = tmp_path / "config.yaml"
+    config = Config(cfg_path)
+    config.set_backend("rpm")
+    assert config.get_backend() == "rpm"
+    config.set_backend("apt")
+    assert config.get_backend() == "apt"
+
+
+def test_get_mirror_variant_default(tmp_path: Path):
+    """Default mirror variant is 'default'."""
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, {})
+    config = Config(cfg_path)
+    assert config.get_mirror_variant() == "default"
+
+
+def test_set_mirror_variant(tmp_path: Path):
+    """Setting mirror variant is reflected."""
+    cfg_path = tmp_path / "config.yaml"
+    config = Config(cfg_path)
+    config.set_mirror_variant("cn")
+    assert config.get_mirror_variant() == "cn"
+
+
+def test_get_preset_name_default(tmp_path: Path):
+    """Default preset name is empty string."""
+    cfg_path = tmp_path / "config.yaml"
+    _write_config(cfg_path, {})
+    config = Config(cfg_path)
+    assert config.get_preset_name() == ""
+
+
+def test_set_preset_name(tmp_path: Path):
+    """Setting preset name is reflected."""
+    cfg_path = tmp_path / "config.yaml"
+    config = Config(cfg_path)
+    config.set_preset_name("debian-bookworm")
+    assert config.get_preset_name() == "debian-bookworm"
+
+
+def test_backend_saved_and_loaded(tmp_path: Path):
+    """Backend setting survives save/reload."""
+    cfg_path = tmp_path / "config.yaml"
+    config = Config(cfg_path)
+    config.set_backend("rpm")
+    config.save()
+
+    config2 = Config(cfg_path)
+    assert config2.get_backend() == "rpm"
+
+
 def test_save_keeps_sync(tmp_path: Path):
     cfg_path = tmp_path / "config.yaml"
     config = Config(cfg_path)
