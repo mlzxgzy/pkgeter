@@ -47,3 +47,23 @@ class PmBackend(ABC):
         for db in dbs:
             merged.update(db)
         return merged
+
+    @property
+    def cache(self) -> "PackageCache | None":
+        """Lazily-initialized SQLite package cache."""
+        if not hasattr(self, "_cache"):
+            try:
+                from pkgeter.db.package_cache import PackageCache
+                self._cache: PackageCache | None = PackageCache()
+            except Exception:
+                self._cache = None
+        return self._cache
+
+    @staticmethod
+    def build_source_id(backend_type: str, url: str, release: str, arch: str, component: str = "") -> str:
+        """Build a unique source identifier for the cache."""
+        sanitized = url.removeprefix("https://").removeprefix("http://").rstrip("/")
+        parts = [backend_type, sanitized, release, arch]
+        if component:
+            parts.append(component)
+        return ":".join(parts)
