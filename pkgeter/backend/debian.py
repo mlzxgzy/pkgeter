@@ -218,23 +218,31 @@ class DebianBackend(PmBackend):
         timeout: int = 60,
         force_update: bool = False,
     ) -> Dict[str, PackageInfo] | None:
-        """Download and parse Packages.gz for a single component/release/arch.
+        source_id = self.build_source_id("deb", mirror, release, arch, component)
 
-        Uses :class:`SourceCache` for the ``main`` component.  For other
-        components (or when the cache is unavailable) falls back to a direct
-        HTTP download.
-        """
         if component == "main":
-            cache = SourceCache(mirror, release, arch)
-            if cache.update(timeout=timeout, force_update=force_update):
-                action = cache.last_action
+            cache_obj = SourceCache(mirror, release, arch)
+            if cache_obj.update(timeout=timeout, force_update=force_update):
+                action = cache_obj.last_action
                 if action == "cache_hit":
                     print(" (cached)", end="", flush=True)
                 elif action == "downloaded":
                     print(" (downloaded)", end="", flush=True)
-                raw = cache.read_packages_gz()
+
+                # Check SQLite cache before parsing
+                raw = cache_obj.read_packages_gz()
                 if raw is not None:
-                    return self._parse_packages_gz(raw)
+                    file_sha = cache_obj._file_sha256(cache_obj._packages_gz_path)
+                    if file_sha and not force_update and self.cache:
+                        if self.cache.is_fresh(source_id, file_sha):
+                            loaded = self.cache.load(source_id)
+                            if loaded is not None:
+                                return loaded
+                    # Parse and cache
+                    parsed = self._parse_packages_gz(raw)
+                    if file_sha and self.cache:
+                        self.cache.store(source_id, file_sha, parsed)
+                    return parsed
 
         # Direct HTTP fallback (non-main components, or cache failure)
         print(" (downloading)", end="", flush=True)
@@ -242,7 +250,15 @@ class DebianBackend(PmBackend):
         with httpx.Client(timeout=timeout) as client:
             resp = client.get(url, follow_redirects=True)
             resp.raise_for_status()
-        return self._parse_packages_gz(resp.content)
+        parsed = self._parse_packages_gz(resp.content)
+
+        # Cache the directly-downloaded result too
+        if self.cache:
+            import hashlib
+            content_sha = hashlib.sha256(resp.content).hexdigest()
+            self.cache.store(source_id, content_sha, parsed)
+
+        return parsed
 
     @staticmethod
     def _build_component_url(
