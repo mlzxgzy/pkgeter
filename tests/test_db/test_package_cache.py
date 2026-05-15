@@ -181,3 +181,31 @@ class TestSearch:
         cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
         results = cache.search("nonexistent_xyz")
         assert results == []
+
+
+class TestErrorHandling:
+    def test_corrupted_db_recreates(self, tmp_path, sample_packages):
+        db_path = tmp_path / "corrupt.db"
+        db_path.write_bytes(b"this is not a sqlite database at all!")
+
+        from pkgeter.db.package_cache import PackageCache
+        cache = PackageCache(db_path=db_path)
+
+        # Should recover — store and load should work
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        loaded = cache.load(SOURCE_ID)
+        assert loaded is not None
+        assert "nginx" in loaded
+
+    def test_store_failure_does_not_crash(self, tmp_path, sample_packages):
+        """Even if the DB becomes read-only after init, store() doesn't raise."""
+        from pkgeter.db.package_cache import PackageCache
+        cache = PackageCache(db_path=tmp_path / "test.db")
+
+        # Forcibly close the connection to simulate failure
+        cache._conn.close()
+        cache._conn = None
+
+        # Should not raise, just silently skip
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        assert cache.load(SOURCE_ID) is None

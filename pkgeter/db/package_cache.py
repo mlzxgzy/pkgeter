@@ -53,14 +53,27 @@ class PackageCache:
     def __init__(self, db_path: Path | None = None):
         self._db_path = db_path or CACHE_DB_PATH
         self._fts_available = False
+        self._conn: sqlite3.Connection | None = None
         try:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self._db_path))
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._ensure_schema()
+            self._conn = self._open_db()
         except sqlite3.Error as exc:
             print(f"Warning: cache database unavailable: {exc}", file=sys.stderr)
             self._conn = None
+
+    def _open_db(self) -> sqlite3.Connection:
+        try:
+            conn = sqlite3.connect(str(self._db_path))
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+        except sqlite3.DatabaseError:
+            conn.close()
+            self._db_path.unlink(missing_ok=True)
+            conn = sqlite3.connect(str(self._db_path))
+            conn.execute("PRAGMA journal_mode=WAL")
+        self._conn = conn
+        self._ensure_schema()
+        return conn
 
     def _ensure_schema(self) -> None:
         if self._conn is None:
