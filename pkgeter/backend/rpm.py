@@ -215,13 +215,26 @@ class RpmBackend(PmBackend):
         cache_dir = CONFIG_PATH.parent / "sources" / "rpm" / sanitized
         cache_path = cache_dir / "primary.xml.gz"
 
+        source_id = self.build_source_id("rpm", base_url, repo.release, repo.arch or "")
+
         # 1-hour cache cooldown – skip HTTP entirely when the cache is fresh
         if not force_update and cache_path.exists():
             age = time.time() - cache_path.stat().st_mtime
             if age < 3600:
+                # Check SQLite cache first
+                file_sha = hashlib.sha256(cache_path.read_bytes()).hexdigest()
+                if self.cache and self.cache.is_fresh(source_id, file_sha):
+                    loaded = self.cache.load(source_id)
+                    if loaded is not None:
+                        for pkg in loaded.values():
+                            pkg.base_url = repo.url
+                        return loaded
+                # SQLite miss — parse and cache
                 packages = self._parse_primary(cache_path.read_bytes())
                 for pkg in packages.values():
                     pkg.base_url = repo.url
+                if self.cache:
+                    self.cache.store(source_id, file_sha, packages)
                 return packages
 
         repomd_url = f"{base_url}/repodata/repomd.xml"
@@ -237,9 +250,18 @@ class RpmBackend(PmBackend):
         if cache_path.exists():
             cached_sha256 = hashlib.sha256(cache_path.read_bytes()).hexdigest()
             if cached_sha256 == expected_sha256:
+                # Check SQLite cache
+                if self.cache and not force_update and self.cache.is_fresh(source_id, expected_sha256):
+                    loaded = self.cache.load(source_id)
+                    if loaded is not None:
+                        for pkg in loaded.values():
+                            pkg.base_url = repo.url
+                        return loaded
                 packages = self._parse_primary(cache_path.read_bytes())
                 for pkg in packages.values():
                     pkg.base_url = repo.url
+                if self.cache:
+                    self.cache.store(source_id, expected_sha256, packages)
                 return packages
 
         # Download primary.xml.gz
@@ -258,13 +280,18 @@ class RpmBackend(PmBackend):
                 f"expected {expected_sha256}, got {actual_sha256}"
             )
 
-        # Save to cache
+        # Save to file cache
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache_path.write_bytes(data)
 
         packages = self._parse_primary(data)
         for pkg in packages.values():
             pkg.base_url = repo.url
+
+        # Store in SQLite cache
+        if self.cache:
+            self.cache.store(source_id, expected_sha256, packages)
+
         return packages
 
 
