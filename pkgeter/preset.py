@@ -130,15 +130,33 @@ def _load_presets() -> dict[str, Any]:
     if _BUILTIN_PRESETS.exists():
         builtin = yaml.safe_load(_BUILTIN_PRESETS.read_text(encoding="utf-8")) or {}
 
-    # 2. Read (or create) user presets
+    # 2. Read (or seed) user presets
+    def _seed_user_presets() -> None:
+        """Copy built-in presets to user config dir (best-effort)."""
+        try:
+            _USER_PRESETS.parent.mkdir(parents=True, exist_ok=True)
+            if _BUILTIN_PRESETS.exists():
+                import shutil
+                shutil.copy2(_BUILTIN_PRESETS, _USER_PRESETS)
+        except OSError:
+            pass
+
     if not _USER_PRESETS.exists():
-        _USER_PRESETS.parent.mkdir(parents=True, exist_ok=True)
-        if _BUILTIN_PRESETS.exists():
-            import shutil
-            shutil.copy2(_BUILTIN_PRESETS, _USER_PRESETS)
+        _seed_user_presets()
         user_raw: dict[str, Any] = {}
     else:
         user_raw = yaml.safe_load(_USER_PRESETS.read_text(encoding="utf-8")) or {}
+        # Detect old flat-format file (keys like "debian-bookworm" without "versions")
+        has_new_format = any(
+            isinstance(v, dict) and "versions" in v for v in user_raw.values()
+        )
+        if user_raw and not has_new_format:
+            print(
+                "Note: updating presets.yaml to new hierarchical format",
+                file=sys.stderr,
+            )
+            _seed_user_presets()
+            user_raw = {}
 
     # 3. Merge: user overrides built-in (keyed by system name)
     merged = {**builtin, **user_raw}
