@@ -69,6 +69,8 @@ def test_deb_mirror_local_sources(tmp_path):
     sources = (result / "local.sources").read_text()
     assert "[trusted=yes]" in sources
     assert "file:" in sources
+    assert "REPLACE_ME" in sources
+    assert "file:///REPLACE_ME" in sources
     assert "bookworm" in sources
     assert "main" in sources
 
@@ -88,8 +90,9 @@ def test_deb_mirror_install_script(tmp_path):
     script = (result / "install.sh").read_text()
     assert "#!/bin/bash" in script
     assert "sudo apt-get" in script
-    assert "Dir::Etc::sourcelist" in script
+    assert "sed -i" in script
     assert "local.sources" in script
+    assert "Dir::Etc::sourcelist" in script
     assert "install pkg" in script
 
 

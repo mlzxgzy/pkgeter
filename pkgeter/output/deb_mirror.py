@@ -34,6 +34,8 @@ class DebMirrorOutput(OutputFormat):
             f"{sudo_block}"
             'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
             'cd "$SCRIPT_DIR"\n'
+            '# Replace path placeholder so the mirror is relocatable\n'
+            'sed -i "s|/REPLACE_ME|$SCRIPT_DIR|g" local.sources\n'
             'sudo apt-get \\\n'
             '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.sources" \\\n'
             '  -o Dir::Etc::sourceparts=/dev/null \\\n'
@@ -47,11 +49,13 @@ class DebMirrorOutput(OutputFormat):
             f'  install {pkg_list}\n'
         )
 
-    def _generate_local_sources(self, base_dir: str, release: str) -> str:
-        """Generate a local sources file entry with Windows-path-safe file: URL."""
-        # Use as_posix() for Windows compatibility (file:// URLs need forward slashes)
-        base = base_dir.replace("\\", "/")
-        return f"deb [trusted=yes] file:{base} {release} main\n"
+    def _generate_local_sources(self, release: str) -> str:
+        """Generate a local sources file entry with REPLACE_ME placeholder.
+
+        The placeholder is substituted at install time by ``install.sh`` so that
+        the mirror can be relocated to any directory.
+        """
+        return f"deb [trusted=yes] file:///REPLACE_ME {release} main\n"
 
     def execute(
         self,
@@ -114,9 +118,8 @@ class DebMirrorOutput(OutputFormat):
         ), newline="\n")
 
         # 4. Write local.sources
-        output_root = str(output_dir.resolve())
         (output_dir / "local.sources").write_text(
-            self._generate_local_sources(output_root, release), newline="\n")
+            self._generate_local_sources(release), newline="\n")
 
         # 5. Write install.sh
         script_path = output_dir / "install.sh"
