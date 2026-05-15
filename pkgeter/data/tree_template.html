@@ -25,6 +25,10 @@ svg { width: 100%; height: 100%; }
 .node.highlight circle { stroke: #00ff88; stroke-width: 3px; fill: #003322; }
 .node.highlight text { fill: #00ff88; font-weight: bold; }
 .or-alt { font-size: 9px; fill: #666; }
+.tab-bar { display: flex; gap: 4px; }
+.tab { background: #16213e; border: 1px solid #0f3460; color: #888; padding: 5px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; font-family: inherit; white-space: nowrap; transition: all 0.15s; }
+.tab:hover { color: #e0e0e0; border-color: #e94560; }
+.tab.active { background: #1a1a2e; color: #e94560; border-color: #e94560; font-weight: 600; }
 .tooltip { position: fixed; background: #16213e; border: 1px solid #0f3460; border-radius: 4px; padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 20; color: #e0e0e0; display: none; }
 .tooltip .pkg-name { color: #e94560; font-weight: 600; }
 .tooltip .pkg-ver { color: #888; }
@@ -33,6 +37,10 @@ svg { width: 100%; height: 100%; }
 <body>
 <div id="toolbar">
   <h1>pkgeter dependency tree</h1>
+  <div class="tab-bar">
+    <button class="tab active" data-tab="full">🌳 Full Tree</button>
+    <button class="tab" data-tab="install">📦 Install Order</button>
+  </div>
   <input id="search" type="text" placeholder="Search packages..." autocomplete="off">
   <span id="info"></span>
 </div>
@@ -41,153 +49,172 @@ svg { width: 100%; height: 100%; }
 <script>__D3_JS__</script>
 <script>
 (function() {
+  let activeTab = 'full';
+  let _svg, _node, _width, _height, _zoom;
   const fullTreeData = __FULL_TREE_DATA__;
   const installOrderData = __INSTALL_ORDER_DATA__;
 
-  // Count total nodes
   function countNodes(node) {
     let c = 1;
     if (node.children) node.children.forEach(ch => c += countNodes(ch));
     return c;
   }
-  const totalNodes = countNodes(fullTreeData);
-  document.getElementById("info").textContent =
-    fullTreeData.name + " — " + totalNodes + " packages";
 
-  const container = document.getElementById("tree-container");
-  const width = container.clientWidth;
-  const height = container.clientHeight;
+  function getCurrentData() {
+    return activeTab === 'install' ? installOrderData : fullTreeData;
+  }
 
-  const svg = d3.select("#tree-container").append("svg")
-    .attr("width", width)
-    .attr("height", height);
+  function renderTree() {
+    const container = document.getElementById("tree-container");
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    const treeData = getCurrentData();
 
-  const g = svg.append("g");
+    container.innerHTML = '';
+    const totalNodes = countNodes(treeData);
+    document.getElementById("info").textContent =
+      (treeData.name || "pkgeter") + " — " + totalNodes + " packages";
 
-  // Zoom
-  const zoom = d3.zoom()
-    .scaleExtent([0.05, 4])
-    .on("zoom", (event) => g.attr("transform", event.transform));
-  svg.call(zoom);
+    const svg = d3.select("#tree-container").append("svg")
+      .attr("width", width)
+      .attr("height", height);
 
-  // Build hierarchy
-  const root = d3.hierarchy(fullTreeData);
-  const nodeCount = root.descendants().length;
+    const g = svg.append("g");
 
-  // Dynamic sizing based on node count
-  const dy = Math.max(180, 220);
-  const dx = Math.max(20, Math.min(30, 600 / nodeCount));
+    const zoom = d3.zoom()
+      .scaleExtent([0.05, 4])
+      .on("zoom", (event) => g.attr("transform", event.transform));
+    svg.call(zoom);
 
-  const treeLayout = d3.tree().nodeSize([dx, dy]);
-  treeLayout(root);
+    const root = d3.hierarchy(treeData);
+    const nodeCount = root.descendants().length;
+    const dy = Math.max(180, 220);
+    const dx = Math.max(20, Math.min(30, 600 / nodeCount));
 
-  // Center the tree
-  let x0 = Infinity, x1 = -Infinity;
-  root.each(d => {
-    if (d.x > x1) x1 = d.x;
-    if (d.x < x0) x0 = d.x;
-  });
-  const treeHeight = x1 - x0 + dx * 2;
+    const treeLayout = d3.tree().nodeSize([dx, dy]);
+    treeLayout(root);
 
-  // Initial transform to show root
-  const initialTransform = d3.zoomIdentity
-    .translate(80, height / 2 - (x0 + x1) / 2);
-  svg.call(zoom.transform, initialTransform);
+    let x0 = Infinity, x1 = -Infinity;
+    root.each(d => { if (d.x > x1) x1 = d.x; if (d.x < x0) x0 = d.x; });
 
-  // Links
-  g.selectAll(".link")
-    .data(root.links())
-    .join("path")
-    .attr("class", "link")
-    .attr("d", d3.linkHorizontal()
-      .x(d => d.y)
-      .y(d => d.x));
+    const initialTransform = d3.zoomIdentity
+      .translate(80, height / 2 - (x0 + x1) / 2);
+    svg.call(zoom.transform, initialTransform);
 
-  // Nodes
-  const node = g.selectAll(".node")
-    .data(root.descendants())
-    .join("g")
-    .attr("class", d => {
-      let cls = "node";
-      if (d.data.isCircular) cls += " circular";
-      if (d.data.isVirtual) cls += " virtual";
-      if (d.data.isDuplicate) cls += " duplicate";
-      return cls;
-    })
-    .attr("transform", d => `translate(${d.y},${d.x})`);
+    g.selectAll(".link")
+      .data(root.links())
+      .join("path")
+      .attr("class", "link")
+      .attr("d", d3.linkHorizontal()
+        .x(d => d.y)
+        .y(d => d.x));
 
-  node.append("circle");
+    const node = g.selectAll(".node")
+      .data(root.descendants())
+      .join("g")
+      .attr("class", d => {
+        let cls = "node";
+        if (d.data.isCircular) cls += " circular";
+        if (d.data.isVirtual) cls += " virtual";
+        if (d.data.isDuplicate) cls += " duplicate";
+        return cls;
+      })
+      .attr("transform", d => `translate(${d.y},${d.x})`);
 
-  node.append("text")
-    .attr("dy", "0.31em")
-    .attr("x", d => d.children ? -10 : 10)
-    .attr("text-anchor", d => d.children ? "end" : "start")
-    .text(d => {
-      let label = d.data.name;
-      if (d.data.isCircular) label += " ↻";
-      if (d.data.isDuplicate) label += " ⤴";
-      if (d.data.isVirtual && d.data.provider) label += " → " + d.data.provider;
-      if (d.data.version && d.data.version !== "(not found)") label += " " + d.data.version;
-      return label;
+    node.append("circle");
+
+    node.append("text")
+      .attr("dy", "0.31em")
+      .attr("x", d => d.children ? -10 : 10)
+      .attr("text-anchor", d => d.children ? "end" : "start")
+      .text(d => {
+        let label = d.data.name;
+        if (d.data.isCircular) label += " ↻";
+        if (d.data.isDuplicate) label += " ⤴";
+        if (d.data.isVirtual && d.data.provider) label += " → " + d.data.provider;
+        if (d.data.version && d.data.version !== "(not found)") label += " " + d.data.version;
+        if (activeTab === 'install' && d.data.reverseDeps && d.data.reverseDeps.length > 0) {
+          label += " ← " + d.data.reverseDeps.length;
+        }
+        return label;
+      });
+
+    node.each(function(d) {
+      if (d.data.orAlternatives && d.data.orAlternatives.length > 0) {
+        d3.select(this).append("text")
+          .attr("class", "or-alt")
+          .attr("dy", "1.8em")
+          .attr("x", d.children ? -10 : 10)
+          .attr("text-anchor", d.children ? "end" : "start")
+          .text("alt: " + d.data.orAlternatives.join(", "));
+      }
     });
 
-  // OR alternatives annotation
-  node.each(function(d) {
-    if (d.data.orAlternatives && d.data.orAlternatives.length > 0) {
-      d3.select(this).append("text")
-        .attr("class", "or-alt")
-        .attr("dy", "1.8em")
-        .attr("x", d.children ? -10 : 10)
-        .attr("text-anchor", d.children ? "end" : "start")
-        .text("alt: " + d.data.orAlternatives.join(", "));
-    }
-  });
+    const tooltip = document.getElementById("tooltip");
+    node.on("mouseover", (event, d) => {
+      const data = d.data;
+      let html = '<span class="pkg-name">' + data.name + '</span>';
+      if (data.version) html += ' <span class="pkg-ver">' + data.version + '</span>';
+      if (activeTab === 'install') {
+        html += '<br>Layer: ' + (data.installLayer !== undefined ? data.installLayer : 0);
+        if (data.reverseDeps && data.reverseDeps.length > 0) {
+          html += '<br>Depended by: ' + data.reverseDeps.join(', ');
+        }
+      } else {
+        html += '<br>Dependencies: ' + (data.children ? data.children.length : 0);
+        if (data.isCircular) html += '<br><span style="color:#ff4444">⚠ Circular dependency</span>';
+        if (data.isDuplicate) html += '<br><span style="color:#666">⤴ Already expanded above</span>';
+        if (data.isVirtual) html += '<br>Virtual → ' + data.provider;
+        if (data.orAlternatives && data.orAlternatives.length)
+          html += '<br>Alternatives: ' + data.orAlternatives.join(', ');
+      }
+      tooltip.innerHTML = html;
+      tooltip.style.display = "block";
+      tooltip.style.left = (event.clientX + 15) + "px";
+      tooltip.style.top = (event.clientY - 10) + "px";
+    })
+    .on("mousemove", (event) => {
+      tooltip.style.left = (event.clientX + 15) + "px";
+      tooltip.style.top = (event.clientY - 10) + "px";
+    })
+    .on("mouseout", () => { tooltip.style.display = "none"; });
 
-  // Tooltip
-  const tooltip = document.getElementById("tooltip");
-  node.on("mouseover", (event, d) => {
-    const data = d.data;
-    let html = '<span class="pkg-name">' + data.name + '</span>';
-    if (data.version) html += ' <span class="pkg-ver">' + data.version + '</span>';
-    html += '<br>Dependencies: ' + (data.children ? data.children.length : 0);
-    if (data.isCircular) html += '<br><span style="color:#ff4444">⚠ Circular dependency</span>';
-    if (data.isDuplicate) html += '<br><span style="color:#666">⤴ Already expanded above</span>';
-    if (data.isVirtual) html += '<br>Virtual → ' + data.provider;
-    if (data.orAlternatives && data.orAlternatives.length)
-      html += '<br>Alternatives: ' + data.orAlternatives.join(', ');
-    tooltip.innerHTML = html;
-    tooltip.style.display = "block";
-    tooltip.style.left = (event.clientX + 15) + "px";
-    tooltip.style.top = (event.clientY - 10) + "px";
-  })
-  .on("mousemove", (event) => {
-    tooltip.style.left = (event.clientX + 15) + "px";
-    tooltip.style.top = (event.clientY - 10) + "px";
-  })
-  .on("mouseout", () => { tooltip.style.display = "none"; });
+    _svg = svg;
+    _node = node;
+    _width = width;
+    _height = height;
+    _zoom = zoom;
+  }
 
-  // Search
-  const searchInput = document.getElementById("search");
-  searchInput.addEventListener("input", function() {
+  renderTree();
+
+  document.getElementById("search").addEventListener("input", function() {
     const query = this.value.toLowerCase().trim();
-    node.classed("highlight", false);
+    if (!_node) return;
+    _node.classed("highlight", false);
     if (!query) return;
-
     const matches = [];
-    node.each(function(d) {
+    _node.each(function(d) {
       if (d.data.name.toLowerCase().includes(query)) {
         d3.select(this).classed("highlight", true);
         matches.push(d);
       }
     });
-
-    // Center on first match
-    if (matches.length > 0) {
+    if (matches.length > 0 && _svg) {
       const target = matches[0];
       const transform = d3.zoomIdentity
-        .translate(width / 2 - target.y, height / 2 - target.x);
-      svg.transition().duration(500).call(zoom.transform, transform);
+        .translate(_width / 2 - target.y, _height / 2 - target.x);
+      _svg.transition().duration(500).call(_zoom.transform, transform);
     }
+  });
+
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.addEventListener("click", function() {
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      this.classList.add("active");
+      activeTab = this.dataset.tab;
+      renderTree();
+    });
   });
 })();
 </script>
