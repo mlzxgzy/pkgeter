@@ -28,35 +28,46 @@ def tree_to_dict(node: TreeNode) -> dict:
     }
 
 
-def render_tree_html(trees: list[TreeNode], output_path: Path) -> Path:
+def _tree_to_data(trees: list[TreeNode]) -> dict:
+    """Convert a tree list into a single root dict suitable for JSON embedding."""
+    if len(trees) == 1:
+        return tree_to_dict(trees[0])
+    return {
+        "name": "pkgeter",
+        "version": "",
+        "children": [tree_to_dict(t) for t in trees],
+        "isCircular": False,
+        "isVirtual": False,
+        "isDuplicate": False,
+        "provider": "",
+        "orAlternatives": [],
+        "reverseDeps": [],
+        "installLayer": 0,
+    }
+
+
+def render_tree_html(
+    trees: list[TreeNode],
+    output_path: Path,
+    install_trees: list[TreeNode] | None = None,
+) -> Path:
     """Render dependency trees into a self-contained HTML file.
 
-    If multiple trees are provided, they are wrapped in a virtual
-    root node named "pkgeter".
+    If *install_trees* is provided, a second dataset is embedded for
+    the Install Order tab in the HTML.
     """
-    if len(trees) == 1:
-        data = tree_to_dict(trees[0])
-    else:
-        data = {
-            "name": "pkgeter",
-            "version": "",
-            "children": [tree_to_dict(t) for t in trees],
-            "isCircular": False,
-            "isVirtual": False,
-            "isDuplicate": False,
-            "provider": "",
-            "orAlternatives": [],
-            "reverseDeps": [],
-            "installLayer": 0,
-        }
+    full_data = _tree_to_data(trees)
+    install_data = _tree_to_data(install_trees) if install_trees else full_data
 
-    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    full_json = json.dumps(full_data, ensure_ascii=False, indent=2)
+    install_json = json.dumps(install_data, ensure_ascii=False, indent=2)
 
     template = _TEMPLATE_PATH.read_text(encoding="utf-8")
     d3_source = _D3_PATH.read_text(encoding="utf-8")
 
     html = template.replace("__D3_JS__", d3_source)
-    html = html.replace("__TREE_DATA__", json_str)
+    html = html.replace("__FULL_TREE_DATA__", full_json)
+    html = html.replace("__INSTALL_ORDER_DATA__", install_json)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")

@@ -98,8 +98,8 @@ def test_render_roundtrip_json_valid(tmp_path):
     render_tree_html([tree], output)
     content = output.read_text(encoding="utf-8")
 
-    # Extract JSON from HTML — it's between "const treeData = " and ";\n"
-    start = content.index("const treeData = ") + len("const treeData = ")
+    # Extract JSON from HTML — it's between "const fullTreeData = " and ";\n"
+    start = content.index("const fullTreeData = ") + len("const fullTreeData = ")
     end = content.index(";\n", start)
     json_str = content[start:end]
     data = json.loads(json_str)
@@ -110,3 +110,17 @@ def test_render_roundtrip_json_valid(tmp_path):
     assert data["children"][1]["isCircular"] is True
     assert data["children"][2]["isVirtual"] is True
     assert data["children"][2]["provider"] == "real-pkg"
+
+
+def test_render_tree_html_dual_datasets(tmp_path):
+    """HTML output contains both full and install-order JSON datasets."""
+    from pkgeter.deps.tree import build_install_order_trees
+    tree = TreeNode(name="curl", version="7.88", children=[
+        TreeNode(name="libc6", version="2.36"),
+    ])
+    install_trees = build_install_order_trees([tree])
+    output = tmp_path / "tree.html"
+    render_tree_html([tree], output, install_trees=install_trees)
+    content = output.read_text(encoding="utf-8")
+    assert "const fullTreeData = " in content
+    assert "const installOrderData = " in content

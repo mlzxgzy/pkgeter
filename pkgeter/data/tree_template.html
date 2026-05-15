@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>pkgeter — dependency tree</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #1a1a2e; color: #e0e0e0; overflow: hidden; }
+#toolbar { position: fixed; top: 0; left: 0; right: 0; z-index: 10; background: #16213e; padding: 10px 20px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #0f3460; }
+#toolbar h1 { font-size: 14px; font-weight: 600; color: #e94560; white-space: nowrap; }
+#search { background: #1a1a2e; border: 1px solid #0f3460; color: #e0e0e0; padding: 6px 12px; border-radius: 4px; font-size: 13px; width: 260px; }
+#search:focus { outline: none; border-color: #e94560; }
+#info { font-size: 12px; color: #888; }
+#tree-container { width: 100vw; height: 100vh; padding-top: 50px; }
+svg { width: 100%; height: 100%; }
+.link { fill: none; stroke: #0f3460; stroke-width: 1.5px; }
+.node circle { r: 5; fill: #16213e; stroke: #e94560; stroke-width: 2px; cursor: pointer; }
+.node text { font-size: 12px; fill: #e0e0e0; }
+.node.circular circle { stroke: #ff4444; stroke-dasharray: 4,3; }
+.node.circular text { fill: #ff4444; }
+.node.virtual circle { stroke: #ffa500; fill: #2a1f00; }
+.node.virtual text { fill: #ffa500; }
+.node.duplicate circle { stroke: #555; stroke-dasharray: 2,2; fill: #1a1a2e; }
+.node.duplicate text { fill: #666; font-style: italic; }
+.node.highlight circle { stroke: #00ff88; stroke-width: 3px; fill: #003322; }
+.node.highlight text { fill: #00ff88; font-weight: bold; }
+.or-alt { font-size: 9px; fill: #666; }
+.tooltip { position: fixed; background: #16213e; border: 1px solid #0f3460; border-radius: 4px; padding: 8px 12px; font-size: 12px; pointer-events: none; z-index: 20; color: #e0e0e0; display: none; }
+.tooltip .pkg-name { color: #e94560; font-weight: 600; }
+.tooltip .pkg-ver { color: #888; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <h1>pkgeter dependency tree</h1>
+  <input id="search" type="text" placeholder="Search packages..." autocomplete="off">
+  <span id="info"></span>
+</div>
+<div id="tree-container"></div>
+<div class="tooltip" id="tooltip"></div>
+<script>__D3_JS__</script>
+<script>
+(function() {
+  const fullTreeData = __FULL_TREE_DATA__;
+  const installOrderData = __INSTALL_ORDER_DATA__;
+
+  // Count total nodes
+  function countNodes(node) {
+    let c = 1;
+    if (node.children) node.children.forEach(ch => c += countNodes(ch));
+    return c;
+  }
+  const totalNodes = countNodes(fullTreeData);
+  document.getElementById("info").textContent =
+    fullTreeData.name + " — " + totalNodes + " packages";
+
+  const container = document.getElementById("tree-container");
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  const svg = d3.select("#tree-container").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  const g = svg.append("g");
+
+  // Zoom
+  const zoom = d3.zoom()
+    .scaleExtent([0.05, 4])
+    .on("zoom", (event) => g.attr("transform", event.transform));
+  svg.call(zoom);
+
+  // Build hierarchy
+  const root = d3.hierarchy(fullTreeData);
+  const nodeCount = root.descendants().length;
+
+  // Dynamic sizing based on node count
+  const dy = Math.max(180, 220);
+  const dx = Math.max(20, Math.min(30, 600 / nodeCount));
+
+  const treeLayout = d3.tree().nodeSize([dx, dy]);
+  treeLayout(root);
+
+  // Center the tree
+  let x0 = Infinity, x1 = -Infinity;
+  root.each(d => {
+    if (d.x > x1) x1 = d.x;
+    if (d.x < x0) x0 = d.x;
+  });
+  const treeHeight = x1 - x0 + dx * 2;
+
+  // Initial transform to show root
+  const initialTransform = d3.zoomIdentity
+    .translate(80, height / 2 - (x0 + x1) / 2);
+  svg.call(zoom.transform, initialTransform);
+
+  // Links
+  g.selectAll(".link")
+    .data(root.links())
+    .join("path")
+    .attr("class", "link")
+    .attr("d", d3.linkHorizontal()
+      .x(d => d.y)
+      .y(d => d.x));
+
+  // Nodes
+  const node = g.selectAll(".node")
+    .data(root.descendants())
+    .join("g")
+    .attr("class", d => {
+      let cls = "node";
+      if (d.data.isCircular) cls += " circular";
+      if (d.data.isVirtual) cls += " virtual";
+      if (d.data.isDuplicate) cls += " duplicate";
+      return cls;
+    })
+    .attr("transform", d => `translate(${d.y},${d.x})`);
+
+  node.append("circle");
+
+  node.append("text")
+    .attr("dy", "0.31em")
+    .attr("x", d => d.children ? -10 : 10)
+    .attr("text-anchor", d => d.children ? "end" : "start")
+    .text(d => {
+      let label = d.data.name;
+      if (d.data.isCircular) label += " ↻";
+      if (d.data.isDuplicate) label += " ⤴";
+      if (d.data.isVirtual && d.data.provider) label += " → " + d.data.provider;
+      if (d.data.version && d.data.version !== "(not found)") label += " " + d.data.version;
+      return label;
+    });
+
+  // OR alternatives annotation
+  node.each(function(d) {
+    if (d.data.orAlternatives && d.data.orAlternatives.length > 0) {
+      d3.select(this).append("text")
+        .attr("class", "or-alt")
+        .attr("dy", "1.8em")
+        .attr("x", d.children ? -10 : 10)
+        .attr("text-anchor", d.children ? "end" : "start")
+        .text("alt: " + d.data.orAlternatives.join(", "));
+    }
+  });
+
+  // Tooltip
+  const tooltip = document.getElementById("tooltip");
+  node.on("mouseover", (event, d) => {
+    const data = d.data;
+    let html = '<span class="pkg-name">' + data.name + '</span>';
+    if (data.version) html += ' <span class="pkg-ver">' + data.version + '</span>';
+    html += '<br>Dependencies: ' + (data.children ? data.children.length : 0);
+    if (data.isCircular) html += '<br><span style="color:#ff4444">⚠ Circular dependency</span>';
+    if (data.isDuplicate) html += '<br><span style="color:#666">⤴ Already expanded above</span>';
+    if (data.isVirtual) html += '<br>Virtual → ' + data.provider;
+    if (data.orAlternatives && data.orAlternatives.length)
+      html += '<br>Alternatives: ' + data.orAlternatives.join(', ');
+    tooltip.innerHTML = html;
+    tooltip.style.display = "block";
+    tooltip.style.left = (event.clientX + 15) + "px";
+    tooltip.style.top = (event.clientY - 10) + "px";
+  })
+  .on("mousemove", (event) => {
+    tooltip.style.left = (event.clientX + 15) + "px";
+    tooltip.style.top = (event.clientY - 10) + "px";
+  })
+  .on("mouseout", () => { tooltip.style.display = "none"; });
+
+  // Search
+  const searchInput = document.getElementById("search");
+  searchInput.addEventListener("input", function() {
+    const query = this.value.toLowerCase().trim();
+    node.classed("highlight", false);
+    if (!query) return;
+
+    const matches = [];
+    node.each(function(d) {
+      if (d.data.name.toLowerCase().includes(query)) {
+        d3.select(this).classed("highlight", true);
+        matches.push(d);
+      }
+    });
+
+    // Center on first match
+    if (matches.length > 0) {
+      const target = matches[0];
+      const transform = d3.zoomIdentity
+        .translate(width / 2 - target.y, height / 2 - target.x);
+      svg.transition().duration(500).call(zoom.transform, transform);
+    }
+  });
+})();
+</script>
+</body>
+</html>
