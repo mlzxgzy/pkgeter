@@ -190,9 +190,44 @@ def reload_presets() -> None:
 # ---------------------------------------------------------------------------
 
 
-def list_presets() -> list[str]:
-    """Return sorted list of available preset names."""
-    return sorted(_load_presets().keys())
+def list_presets() -> dict[str, dict]:
+    """Return preset info grouped by system.
+
+    Returns ``{"debian": {"versions": ["bookworm", ...], "variants": ["cn"]}, ...}``.
+    """
+    _load_presets()
+    return dict(_SYSTEMS_CACHE) if _SYSTEMS_CACHE else {}
+
+
+def list_systems() -> list[str]:
+    """Return sorted list of system names."""
+    _load_presets()
+    return sorted(_SYSTEMS_CACHE.keys()) if _SYSTEMS_CACHE else []
+
+
+def all_preset_names() -> list[str]:
+    """Return sorted flat list of all valid preset names including @variant forms."""
+    result = []
+    for system, info in list_presets().items():
+        for ver in info["versions"]:
+            result.append(f"{system}-{ver}")
+            for variant in info["variants"]:
+                result.append(f"{system}-{ver}@{variant}")
+    return sorted(result)
+
+
+def complete_preset_name(text: str) -> list[str]:
+    """Hierarchical TAB completion for preset names.
+
+    - No hyphen yet -> complete system prefix (``deb`` -> ``debian-``)
+    - Has hyphen -> complete full preset names including ``@variant``
+    """
+    presets_info = list_presets()
+
+    if "-" not in text:
+        return sorted(f"{s}-" for s in presets_info if s.startswith(text))
+
+    return sorted(n for n in all_preset_names() if n.startswith(text))
 
 
 def get_preset(name: str, mirror_variant: str = "default") -> dict | None:
@@ -262,7 +297,7 @@ def run_preset(argv: list[str] | None = None) -> None:
 
     if args.action == "list":
         print("Available presets (edit ~/.config/pkgeter/presets.yaml to add more):")
-        for name in list_presets():
+        for name in all_preset_names():
             print(f"  {name}")
         return
 

@@ -14,8 +14,11 @@ from pkgeter.preset import (
     _expand_system,
     _load_presets,
     _substitute_version,
+    all_preset_names,
+    complete_preset_name,
     get_preset,
     list_presets,
+    list_systems,
     reload_presets,
     run_preset,
 )
@@ -211,15 +214,71 @@ class TestPresetsContent:
 
 
 class TestListPresets:
+    def test_returns_system_info(self, preset_file):
+        result = list_presets()
+        assert "debian" in result
+        assert "centos" in result
+
+    def test_debian_versions(self, preset_file):
+        info = list_presets()["debian"]
+        assert "bookworm" in info["versions"]
+        assert "bullseye" in info["versions"]
+
+    def test_debian_variants(self, preset_file):
+        info = list_presets()["debian"]
+        assert "cn" in info["variants"]
+
+    def test_system_without_mirrors_has_empty_variants(self, preset_file):
+        info = list_presets()["centos"]
+        assert info["variants"] == []
+
+
+class TestListSystems:
     def test_returns_sorted(self, preset_file):
-        names = list_presets()
-        assert names == sorted(names)
+        systems = list_systems()
+        assert systems == sorted(systems)
 
     def test_includes_all(self, preset_file):
-        names = list_presets()
-        assert "centos-9" in names
+        systems = list_systems()
+        assert "debian" in systems
+        assert "centos" in systems
+
+
+class TestAllPresetNames:
+    def test_includes_base_names(self, preset_file):
+        names = all_preset_names()
         assert "debian-bookworm" in names
         assert "debian-bullseye" in names
+        assert "centos-9" in names
+
+    def test_includes_variant_names(self, preset_file):
+        names = all_preset_names()
+        assert "debian-bookworm@cn" in names
+        assert "debian-bullseye@cn" in names
+
+    def test_sorted(self, preset_file):
+        names = all_preset_names()
+        assert names == sorted(names)
+
+
+class TestCompletePresetName:
+    def test_system_prefix(self, preset_file):
+        result = complete_preset_name("deb")
+        assert "debian-" in result
+
+    def test_version_completion(self, preset_file):
+        result = complete_preset_name("debian-")
+        assert "debian-bookworm" in result
+        assert "debian-bullseye" in result
+
+    def test_variant_completion(self, preset_file):
+        result = complete_preset_name("debian-bookworm")
+        assert "debian-bookworm" in result
+        assert "debian-bookworm@cn" in result
+
+    def test_no_match(self, preset_file):
+        result = complete_preset_name("nonexistent")
+        assert result == []
 
 
 # ---------------------------------------------------------------------------
