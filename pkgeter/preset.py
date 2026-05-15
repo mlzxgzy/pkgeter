@@ -21,6 +21,73 @@ _PACKAGE_DIR = Path(__file__).parent
 _BUILTIN_PRESETS = _PACKAGE_DIR / "data" / "presets.yaml"
 _USER_PRESETS = CONFIG_PATH.parent / "presets.yaml"
 
+
+# ---------------------------------------------------------------------------
+# Template expansion helpers
+# ---------------------------------------------------------------------------
+
+
+def _substitute_version(repos_raw: list[dict], version: str) -> list[dict]:
+    """Replace ``{version}`` placeholders in all string values of repo dicts."""
+    result = []
+    for repo in repos_raw:
+        new_repo = {}
+        for key, val in repo.items():
+            if isinstance(val, str):
+                new_repo[key] = val.replace("{version}", version)
+            else:
+                new_repo[key] = val
+        result.append(new_repo)
+    return result
+
+
+def _expand_system(system_name: str, data: dict) -> dict[str, dict]:
+    """Expand a single system entry into flat ``name -> preset`` pairs.
+
+    Handles both template mode (``versions`` is a list) and explicit mode
+    (``versions`` is a dict with per-version repos).
+    """
+    versions = data["versions"]
+    backend = data.get("backend", "")
+    arch = data.get("arch", "")
+    presets: dict[str, dict] = {}
+
+    if isinstance(versions, list):
+        repos_template = data.get("repos", [])
+        mirrors_raw = data.get("mirrors", {})
+        for ver in versions:
+            ver_str = str(ver)
+            key = f"{system_name}-{ver_str}"
+            repos = _substitute_version(repos_template, ver_str)
+            mirrors: dict[str, dict[str, str]] = {}
+            for variant_name, url_map in mirrors_raw.items():
+                mirrors[variant_name] = {
+                    repo_name: url.replace("{version}", ver_str)
+                    for repo_name, url in url_map.items()
+                }
+            presets[key] = {
+                "backend": backend,
+                "arch": arch,
+                "repos": [RepoConfig.from_dict(r) for r in repos],
+                "mirrors": mirrors,
+            }
+    else:
+        system_mirrors = data.get("mirrors", {})
+        for ver, ver_data in versions.items():
+            ver_str = str(ver)
+            key = f"{system_name}-{ver_str}"
+            repos_raw = ver_data.get("repos", [])
+            ver_mirrors = ver_data.get("mirrors", system_mirrors)
+            presets[key] = {
+                "backend": backend,
+                "arch": arch,
+                "repos": [RepoConfig.from_dict(r) for r in repos_raw],
+                "mirrors": ver_mirrors,
+            }
+
+    return presets
+
+
 # ---------------------------------------------------------------------------
 # Lazy loading from YAML (built-in + user merged)
 # ---------------------------------------------------------------------------
