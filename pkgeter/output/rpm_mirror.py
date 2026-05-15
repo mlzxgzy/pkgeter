@@ -1,0 +1,154 @@
+"""Output format: local RPM/yum/DNF mirror with self-generated repodata."""
+
+from __future__ import annotations
+
+import hashlib
+import shutil
+from pathlib import Path
+from typing import Dict, Optional
+
+from pkgeter.models import PackageInfo
+from pkgeter.output.base import OutputFormat
+from pkgeter.output.repomd_gen import build_primary_xml, build_repomd_xml
+
+
+class RpmMirrorOutputBase(OutputFormat):
+    """Base class for RPM mirror outputs (shared by yum3 and dnf variants)."""
+    name = "rpm-mirror"
+    description = "Output .rpm files to a local yum/dnf mirror with repodata"
+
+    @property
+    def package_manager(self) -> str:
+        return "yum"
+
+    @property
+    def use_repofrompath(self) -> bool:
+        return False
+
+    def _generate_install_script(self, script_dir: str, packages: list[str]) -> str:
+        pkg_list = " ".join(packages)
+        if self.use_repofrompath:
+            return (
+                "#!/bin/bash\n"
+                "# pkgeter - Offline DNF package installation\n"
+                f"# Target packages: {pkg_list}\n"
+                "#\n"
+                'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+                'cd "$SCRIPT_DIR"\n'
+                f'sudo dnf --repofrompath=local,file://"$SCRIPT_DIR"/rpms --nogpgcheck install {pkg_list}\n'
+            )
+        return (
+            "#!/bin/bash\n"
+            "# pkgeter - Offline YUM package installation\n"
+            f"# Target packages: {pkg_list}\n"
+            "#\n"
+            'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
+            'cd "$SCRIPT_DIR"\n'
+            f'sudo yum --config="$SCRIPT_DIR/yum.conf" --nogpgcheck install {pkg_list}\n'
+        )
+
+    def _generate_yum_conf(self) -> str:
+        return "[main]\ngpgcheck=0\nreposdir=$SCRIPT_DIR\n"
+
+    def _generate_local_repo(self, rpms_dir: str) -> str:
+        return (
+            "[local]\n"
+            "name=Local Repository\n"
+            f"baseurl=file://{rpms_dir}\n"
+            "enabled=1\ngpgcheck=0\n"
+        )
+
+    def execute(
+        self,
+        deb_files: Dict[str, Path],
+        install_script: str,
+        release: str,
+        arch: str,
+        output_dir: Path,
+        packages: list[str] | None = None,
+        pkg_info: Dict[str, PackageInfo] | None = None,
+    ) -> Path:
+        if packages is None:
+            packages = list(deb_files.keys())
+
+        # 1. Copy .rpm files to rpms/
+        rpms_dir = output_dir / "rpms"
+        rpms_dir.mkdir(parents=True, exist_ok=True)
+        for src_path in deb_files.values():
+            shutil.copy2(src_path, rpms_dir / src_path.name)
+
+        # 2. Build metadata dict for repodata generation
+        meta_pkgs: Dict[str, PackageInfo] = {}
+        for pkg_name, src_path in deb_files.items():
+            file_data = (rpms_dir / src_path.name).read_bytes()
+            actual_sha = hashlib.sha256(file_data).hexdigest()
+            file_size = len(file_data)
+            if pkg_info and pkg_name in pkg_info:
+                src = pkg_info[pkg_name]
+                meta_pkgs[pkg_name] = PackageInfo(
+                    package=src.package,
+                    version=src.version,
+                    arch=src.arch or "noarch",
+                    filename=f"rpms/{src_path.name}",
+                    sha256=actual_sha,
+                    size=file_size,
+                    depends=src.depends,
+                    provides=src.provides,
+                )
+            else:
+                meta_pkgs[pkg_name] = PackageInfo(
+                    package=pkg_name, version="0:0-0",
+                    arch="noarch", filename=f"rpms/{src_path.name}",
+                    sha256=actual_sha, size=file_size,
+                )
+
+        # 3. Generate repodata
+        repodata_dir = output_dir / "repodata"
+        repodata_dir.mkdir(parents=True, exist_ok=True)
+        primary_gz = build_primary_xml(meta_pkgs)
+        (repodata_dir / "primary.xml.gz").write_bytes(primary_gz)
+        (repodata_dir / "repomd.xml").write_text(
+            build_repomd_xml(primary_gz, output_dir))
+
+        # 4. Write yum.conf + local.repo
+        (output_dir / "yum.conf").write_text(self._generate_yum_conf())
+        rpms_dir_abs = rpms_dir.resolve().as_posix()
+        (output_dir / "local.repo").write_text(self._generate_local_repo(rpms_dir_abs))
+
+        # 5. Write install.sh
+        script_path = output_dir / "install.sh"
+        script_path.write_text(
+            self._generate_install_script(str(output_dir.resolve()), packages))
+        script_path.chmod(0o755)
+
+        return output_dir
+
+
+class RpmMirrorOutput(RpmMirrorOutputBase):
+    """RPM mirror output for yum3 (uses --config + yum.conf)."""
+    name = "rpm-mirror"
+    @property
+    def package_manager(self) -> str:
+        return "yum"
+    @property
+    def use_repofrompath(self) -> bool:
+        return False
+
+
+class DnfMirrorOutput(RpmMirrorOutputBase):
+    """RPM mirror output for dnf (uses --repofrompath, no yum.conf)."""
+    name = "dnf-mirror"
+    @property
+    def package_manager(self) -> str:
+        return "dnf"
+    @property
+    def use_repofrompath(self) -> bool:
+        return True
+
+    def execute(self, **kwargs) -> Path:
+        """DNF variant: skip yum.conf generation."""
+        result = super().execute(**kwargs)
+        yum_conf = kwargs["output_dir"] / "yum.conf"
+        if yum_conf.exists():
+            yum_conf.unlink()
+        return result
