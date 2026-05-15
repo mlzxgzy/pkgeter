@@ -235,13 +235,16 @@ def run_get(argv: list[str]) -> int:
     files = [downloaded[name].name for name in needed]
     install_script = backend.generate_install_script(files, packages)
 
-    # Output
+    # Output — use local mirror format by default
     if backend.name in ("apt", "debian"):
-        from pkgeter.output.deb_directory import DebDirectoryOutput
-        fmt = DebDirectoryOutput()
+        from pkgeter.output.deb_mirror import DebMirrorOutput
+        fmt = DebMirrorOutput()
+    elif backend.name == "dnf":
+        from pkgeter.output.rpm_mirror import DnfMirrorOutput
+        fmt = DnfMirrorOutput()
     else:
-        from pkgeter.output.rpm_directory import RpmDirectoryOutput
-        fmt = RpmDirectoryOutput()
+        from pkgeter.output.rpm_mirror import RpmMirrorOutput
+        fmt = RpmMirrorOutput()
     logger.debug("Output format: %s", type(fmt).__name__)
     result = fmt.execute(
         deb_files=downloaded,
@@ -249,6 +252,8 @@ def run_get(argv: list[str]) -> int:
         release=args.release or "",
         arch=arch,
         output_dir=args.output,
+        packages=packages,
+        pkg_info=package_db,
     )
     # Save mirror_variant choice and preset name to config
     config.set_mirror_variant(mirror_variant)
