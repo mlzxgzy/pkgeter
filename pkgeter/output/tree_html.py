@@ -20,6 +20,7 @@ def tree_to_dict(node: TreeNode) -> dict:
         "children": [tree_to_dict(c) for c in node.children],
         "isCircular": node.is_circular,
         "isVirtual": node.is_virtual,
+        "isDuplicate": node.is_duplicate,
         "provider": node.provider,
         "orAlternatives": node.or_alternatives,
     }

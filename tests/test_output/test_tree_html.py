@@ -16,6 +16,7 @@ def test_tree_to_dict_single_node():
         "children": [],
         "isCircular": False,
         "isVirtual": False,
+        "isDuplicate": False,
         "provider": "",
         "orAlternatives": [],
     }

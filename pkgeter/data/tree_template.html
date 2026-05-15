@@ -20,6 +20,8 @@ svg { width: 100%; height: 100%; }
 .node.circular text { fill: #ff4444; }
 .node.virtual circle { stroke: #ffa500; fill: #2a1f00; }
 .node.virtual text { fill: #ffa500; }
+.node.duplicate circle { stroke: #555; stroke-dasharray: 2,2; fill: #1a1a2e; }
+.node.duplicate text { fill: #666; font-style: italic; }
 .node.highlight circle { stroke: #00ff88; stroke-width: 3px; fill: #003322; }
 .node.highlight text { fill: #00ff88; font-weight: bold; }
 .or-alt { font-size: 9px; fill: #666; }
@@ -108,6 +110,7 @@ svg { width: 100%; height: 100%; }
       let cls = "node";
       if (d.data.isCircular) cls += " circular";
       if (d.data.isVirtual) cls += " virtual";
+      if (d.data.isDuplicate) cls += " duplicate";
       return cls;
     })
     .attr("transform", d => `translate(${d.y},${d.x})`);
@@ -121,6 +124,7 @@ svg { width: 100%; height: 100%; }
     .text(d => {
       let label = d.data.name;
       if (d.data.isCircular) label += " ↻";
+      if (d.data.isDuplicate) label += " ⤴";
       if (d.data.isVirtual && d.data.provider) label += " → " + d.data.provider;
       if (d.data.version && d.data.version !== "(not found)") label += " " + d.data.version;
       return label;
@@ -146,6 +150,7 @@ svg { width: 100%; height: 100%; }
     if (data.version) html += ' <span class="pkg-ver">' + data.version + '</span>';
     html += '<br>Dependencies: ' + (data.children ? data.children.length : 0);
     if (data.isCircular) html += '<br><span style="color:#ff4444">⚠ Circular dependency</span>';
+    if (data.isDuplicate) html += '<br><span style="color:#666">⤴ Already expanded above</span>';
     if (data.isVirtual) html += '<br>Virtual → ' + data.provider;
     if (data.orAlternatives && data.orAlternatives.length)
       html += '<br>Alternatives: ' + data.orAlternatives.join(', ');
