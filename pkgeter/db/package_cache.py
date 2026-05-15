@@ -205,7 +205,115 @@ class PackageCache:
 
     def search(self, query: str, source_ids: list[str] | None = None,
                search_desc: bool = False) -> list[PackageInfo]:
-        raise NotImplementedError("Task 3")
+        if self._conn is None:
+            return []
+
+        has_wildcards = "*" in query or "?" in query
+        q_lower = query.lower()
+
+        if has_wildcards:
+            like_pattern = q_lower.replace("*", "%").replace("?", "_")
+        else:
+            like_pattern = f"%{q_lower}%"
+
+        # Name search via LIKE
+        if source_ids:
+            placeholders = ",".join("?" for _ in source_ids)
+            sql = f"""SELECT package, version, arch, filename, sha256, size,
+                             description, depends, provides, base_url, source_id
+                      FROM packages
+                      WHERE LOWER(package) LIKE ? AND source_id IN ({placeholders})"""
+            params: list = [like_pattern] + source_ids
+        else:
+            sql = """SELECT package, version, arch, filename, sha256, size,
+                            description, depends, provides, base_url, source_id
+                     FROM packages
+                     WHERE LOWER(package) LIKE ?"""
+            params = [like_pattern]
+
+        cur = self._conn.execute(sql, params)
+        results = self._rows_to_packages(cur.fetchall())
+
+        # Description search via FTS5 (or LIKE fallback)
+        if search_desc and not has_wildcards:
+            desc_results = self._search_description(q_lower, source_ids)
+            seen = {r.package for r in results}
+            for pkg in desc_results:
+                if pkg.package not in seen:
+                    results.append(pkg)
+                    seen.add(pkg.package)
+
+        return results
+
+    def _search_description(self, query: str,
+                            source_ids: list[str] | None) -> list[PackageInfo]:
+        if self._conn is None:
+            return []
+
+        if self._fts_available:
+            fts_query = query.replace('"', '""')
+            if source_ids:
+                placeholders = ",".join("?" for _ in source_ids)
+                sql = f"""SELECT p.package, p.version, p.arch, p.filename, p.sha256,
+                                 p.size, p.description, p.depends, p.provides,
+                                 p.base_url, p.source_id
+                          FROM packages_fts f
+                          JOIN packages p ON p.rowid = f.rowid
+                          WHERE packages_fts MATCH ?
+                            AND p.source_id IN ({placeholders})"""
+                params: list = [f'description:"{fts_query}"'] + source_ids
+            else:
+                sql = """SELECT p.package, p.version, p.arch, p.filename, p.sha256,
+                                p.size, p.description, p.depends, p.provides,
+                                p.base_url, p.source_id
+                         FROM packages_fts f
+                         JOIN packages p ON p.rowid = f.rowid
+                         WHERE packages_fts MATCH ?"""
+                params = [f'description:"{fts_query}"']
+            try:
+                cur = self._conn.execute(sql, params)
+                return self._rows_to_packages(cur.fetchall())
+            except sqlite3.OperationalError:
+                pass  # Fall through to LIKE
+
+        # LIKE fallback
+        if source_ids:
+            placeholders = ",".join("?" for _ in source_ids)
+            sql = f"""SELECT package, version, arch, filename, sha256, size,
+                             description, depends, provides, base_url, source_id
+                      FROM packages
+                      WHERE LOWER(description) LIKE ?
+                        AND source_id IN ({placeholders})"""
+            params = [f"%{query}%"] + source_ids
+        else:
+            sql = """SELECT package, version, arch, filename, sha256, size,
+                            description, depends, provides, base_url, source_id
+                     FROM packages
+                     WHERE LOWER(description) LIKE ?"""
+            params = [f"%{query}%"]
+
+        cur = self._conn.execute(sql, params)
+        return self._rows_to_packages(cur.fetchall())
+
+    @staticmethod
+    def _rows_to_packages(rows: list) -> list[PackageInfo]:
+        results: list[PackageInfo] = []
+        for row in rows:
+            (name, version, arch, filename, sha256, size,
+             description, depends_raw, provides_raw, base_url, _source_id) = row
+            results.append(PackageInfo(
+                package=name,
+                version=version,
+                arch=arch,
+                filename=filename,
+                sha256=sha256,
+                size=size,
+                description=description,
+                depends=_deserialize_depends(depends_raw),
+                provides=_deserialize_provides(provides_raw),
+                base_url=base_url,
+            ))
+        return results
 
     def clear(self, source_id: str | None = None) -> None:
         if self._conn is None:

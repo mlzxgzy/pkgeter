@@ -133,3 +133,51 @@ class TestClear:
         cache.clear()
         assert cache.load(SOURCE_ID) is None
         assert cache.load(other_id) is None
+
+
+class TestSearch:
+    def test_search_by_name_substring(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        results = cache.search("ngi")
+        assert len(results) == 1
+        assert results[0].package == "nginx"
+
+    def test_search_by_name_case_insensitive(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        results = cache.search("CURL")
+        assert len(results) == 1
+        assert results[0].package == "curl"
+
+    def test_search_wildcard_star(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        results = cache.search("ng*")
+        names = [r.package for r in results]
+        assert "nginx" in names
+
+    def test_search_wildcard_question(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        results = cache.search("cur?")
+        assert len(results) == 1
+        assert results[0].package == "curl"
+
+    def test_search_description(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        results = cache.search("proxy", search_desc=True)
+        assert len(results) >= 1
+        assert any(r.package == "nginx" for r in results)
+
+    def test_search_with_source_filter(self, cache, sample_packages):
+        other_id = "deb:other:bookworm:amd64:main"
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        cache.store(other_id, "other_sha", {"curl": sample_packages["curl"]})
+
+        results = cache.search("curl", source_ids=[other_id])
+        assert len(results) == 1
+
+        results_all = cache.search("curl")
+        assert len(results_all) >= 1
+
+    def test_search_no_results(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        results = cache.search("nonexistent_xyz")
+        assert results == []
