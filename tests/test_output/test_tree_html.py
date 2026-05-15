@@ -79,3 +79,31 @@ def test_render_tree_html_contains_d3(tmp_path):
     render_tree_html([tree], output)
     content = output.read_text(encoding="utf-8")
     assert "d3" in content.lower()
+
+
+def test_render_roundtrip_json_valid(tmp_path):
+    """The JSON embedded in the HTML is valid and matches the input tree."""
+    tree = TreeNode(
+        name="app", version="2.0",
+        children=[
+            TreeNode(name="liba", version="1.0", or_alternatives=["libb"]),
+            TreeNode(name="libc", version="3.0", is_circular=True),
+            TreeNode(name="virt", version="", is_virtual=True, provider="real-pkg"),
+        ],
+    )
+    output = tmp_path / "test.html"
+    render_tree_html([tree], output)
+    content = output.read_text(encoding="utf-8")
+
+    # Extract JSON from HTML — it's between "const treeData = " and ";\n"
+    start = content.index("const treeData = ") + len("const treeData = ")
+    end = content.index(";\n", start)
+    json_str = content[start:end]
+    data = json.loads(json_str)
+
+    assert data["name"] == "app"
+    assert len(data["children"]) == 3
+    assert data["children"][0]["orAlternatives"] == ["libb"]
+    assert data["children"][1]["isCircular"] is True
+    assert data["children"][2]["isVirtual"] is True
+    assert data["children"][2]["provider"] == "real-pkg"

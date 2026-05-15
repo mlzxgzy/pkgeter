@@ -183,3 +183,26 @@ def test_system_deps_skipped():
     }
     trees = build_dependency_tree(["app"], db)
     assert trees[0].children == []
+
+
+from pathlib import Path
+from pkgeter.backend.debian import DebianBackend
+
+SAMPLE_PACKAGES_GZ = Path(__file__).parent.parent / "data" / "sample_packages.gz"
+
+
+def test_tree_with_sample_packages_gz():
+    """Integration test: build tree from sample_packages.gz fixture."""
+    if not SAMPLE_PACKAGES_GZ.exists():
+        pytest.skip("sample_packages.gz not found")
+    raw = SAMPLE_PACKAGES_GZ.read_bytes()
+    backend = DebianBackend()
+    db = backend._parse_packages_gz(raw)
+    if not db:
+        pytest.skip("sample_packages.gz is empty")
+    # Pick first package from DB
+    first_pkg = next(iter(db))
+    trees = build_dependency_tree([first_pkg], db)
+    assert len(trees) == 1
+    assert trees[0].name == first_pkg
+    assert trees[0].version == db[first_pkg].version
