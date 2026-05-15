@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set
 
 from pkgeter.deps.virtual import find_providers
 from pkgeter.models import PackageInfo
+
+if TYPE_CHECKING:
+    from pkgeter.deps.provides_index import ProvidesIndex
 
 
 class Resolver:
@@ -16,11 +19,14 @@ class Resolver:
         all_pkgs: Dict[str, PackageInfo],
         installed: Optional[Set[str]] = None,
         virtual_callback: Optional[Callable[[str, list[str]], str]] = None,
+        provides_index: Optional["ProvidesIndex"] = None,
     ):
         self.all_pkgs = all_pkgs
         self.installed = installed or set()
         self.virtual_callback = virtual_callback or self._default_virtual_handler
+        self.provides_index = provides_index
         self._visited: Set[str] = set()
+        self.skipped: Dict[str, List[str]] = {}  # pkg_name -> [skipped dep names]
 
     def resolve(self, pkg_names: list[str]) -> List[str]:
         """Resolve all dependencies for the given package names.
@@ -32,6 +38,7 @@ class Resolver:
         """
         result: List[str] = []
         self._visited = set()
+        self.skipped = {}
         for name in pkg_names:
             resolved = self._resolve_one(name)
             for pkg in resolved:
@@ -55,8 +62,11 @@ class Resolver:
 
         info = self.all_pkgs.get(pkg_name)
         if info is None:
-            # May be a virtual package
-            providers = find_providers(pkg_name, self.all_pkgs)
+            # May be a virtual package — use index (O(1)) or linear scan
+            if self.provides_index is not None:
+                providers = self.provides_index.find(pkg_name)
+            else:
+                providers = find_providers(pkg_name, self.all_pkgs)
             if not providers:
                 raise ValueError(
                     f"Package '{pkg_name}' not found in repository "
@@ -74,13 +84,20 @@ class Resolver:
             for dep_group in info.depends:
                 # OR dependency: try each alternative, use first available
                 resolved_one = False
+                has_soft_dep = False
                 for dep in dep_group:
-                    # Skip non-package deps that are satisfied by the base system:
-                    #   - Absolute file paths (e.g. /bin/awk)
-                    #   - Shared library sonames (e.g. libcrypto.so.1.1()(64bit))
-                    if dep.name.startswith("/") or ".so" in dep.name or dep.name.startswith("rpmlib(") or dep.name == "rtld(GNU_HASH)":
+                    # RPM-internal markers — always skip
+                    if dep.name.startswith("rpmlib(") or dep.name == "rtld(GNU_HASH)":
                         resolved_one = True
                         break
+
+                    # Sonames and file paths are "soft" deps: resolve if
+                    # possible (via provides), but tolerate missing ones
+                    # (assumed provided by the base system).
+                    is_soft = dep.name.startswith("/") or ".so" in dep.name
+                    if is_soft:
+                        has_soft_dep = True
+
                     try:
                         sub_deps = self._resolve_one(dep.name)
                         result.extend(sub_deps)
@@ -89,6 +106,11 @@ class Resolver:
                     except ValueError:
                         continue
                 if not resolved_one:
+                    if has_soft_dep:
+                        skipped_names = [d.name for d in dep_group if d.name.startswith("/") or ".so" in d.name]
+                        if skipped_names:
+                            self.skipped.setdefault(pkg_name, []).extend(skipped_names)
+                        continue
                     names = [d.name for d in dep_group]
                     raise ValueError(
                         f"Cannot resolve dependency '{' | '.join(names)}' "

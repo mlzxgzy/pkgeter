@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 import httpx
 
 from pkgeter.config import CONFIG_PATH, Config, parse_mirror_entry
+from pkgeter.context import resolve_backend
 from pkgeter.db.packages import download_package_db
 from pkgeter.deps.resolver import Resolver
 from pkgeter.deps.virtual import resolve_virtual_interactive
 from pkgeter.downloader import Downloader
-from pkgeter.models import RepoConfig
 
 # ---------------------------------------------------------------------------
 # Legacy parser and helpers (kept for backward compat with existing tests)
@@ -156,61 +156,20 @@ def run_get(argv: list[str]) -> int:
         return 1
     config = Config(args.config)
     logger.debug("Config loaded from: %s", config.path)
-    arch = args.arch or config.get("arch", "amd64")
-    logger.debug("Architecture: %s", arch)
-    mirror_variant = args.mirror or config.get_mirror_variant()
-    if args.cn:
-        mirror_variant = "cn"
-    logger.debug("Mirror variant: %s", mirror_variant)
 
-    # Determine repos and backend
-    if args.distro:
-        from pkgeter.preset import get_preset
-        distro = args.distro
-        if "@" not in distro and mirror_variant != "default":
-            distro = f"{distro}@{mirror_variant}"
-        preset = get_preset(distro)
-        if not preset:
-            print(f"Error: unknown preset '{args.distro}'", file=sys.stderr)
-            return 1
-        repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
-        backend_name = preset["backend"]
-        arch = preset.get("arch", arch)
-        logger.debug("Using preset: %s (backend=%s, repos=%d)", distro, backend_name, len(repos))
-    else:
-        repos_dicts = config.get_repos()
-        if not repos_dicts:
-            from pkgeter.preset import get_preset
-            fallback = "debian-bookworm"
-            if mirror_variant != "default":
-                fallback = f"debian-bookworm@{mirror_variant}"
-            preset = get_preset(fallback)
-            repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
-            backend_name = preset["backend"]
-            logger.debug("No repos in config, falling back to preset: %s", fallback)
-        else:
-            repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in repos_dicts]
-            backend_name = config.get_backend()
-            logger.debug("Using repos from config (backend=%s)", backend_name)
-
-    logger.debug("Repos:")
-    for r in repos:
-        logger.debug("  %s  (%s, %s)", r.url, r.release, r.arch or arch)
-
-    # Instantiate backend
-    if backend_name in ("apt", "debian"):  # "debian" for backward compat
-        from pkgeter.backend.debian import DebianBackend
-        backend = DebianBackend()
-    elif backend_name == "dnf":
-        from pkgeter.backend.rpm import DnfBackend
-        backend = DnfBackend()
-    elif backend_name == "rpm":
-        from pkgeter.backend.rpm import RpmBackend
-        backend = RpmBackend()
-    else:
-        print(f"Error: unknown backend '{backend_name}'", file=sys.stderr)
+    try:
+        ctx = resolve_backend(
+            distro=args.distro,
+            arch=args.arch,
+            mirror=args.mirror,
+            cn=args.cn,
+            config=config,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
         return 1
-    logger.debug("Backend: %s", type(backend).__name__)
+    backend, repos, arch = ctx.backend, ctx.repos, ctx.arch
+    mirror_variant = ctx.mirror_variant
 
     # Download package DB
     print("Loading package database...")
@@ -231,15 +190,29 @@ def run_get(argv: list[str]) -> int:
             return resolve_virtual_interactive(name, providers, package_db)
         return providers[0]
 
+    provides_index = getattr(backend, "provides_index", None)
+    if provides_index is not None:
+        logger.debug("Provides index: %d entries", len(provides_index))
+
     resolver = Resolver(
         all_pkgs=package_db,
         installed=set(),
         virtual_callback=_resolve_virtual,
+        provides_index=provides_index,
     )
     needed = resolver.resolve(packages)
     logger.debug("Packages requested: %s", packages)
     logger.debug("Packages to download: %s", needed)
     print(f"Need to download {len(needed)} packages")
+
+    if resolver.skipped:
+        total = sum(len(v) for v in resolver.skipped.values())
+        print(f"\nWarning: {total} dependencies could not be found in the "
+              f"repository and were skipped (assumed system-provided):")
+        for pkg, deps in resolver.skipped.items():
+            for dep in deps:
+                print(f"  {pkg} -> {dep}")
+        print()
 
     # Build download info with per-package URLs
     download_dir = args.output / ".downloads"
@@ -263,7 +236,7 @@ def run_get(argv: list[str]) -> int:
     install_script = backend.generate_install_script(files, packages)
 
     # Output
-    if backend_name in ("apt", "debian"):
+    if backend.name in ("apt", "debian"):
         from pkgeter.output.deb_directory import DebDirectoryOutput
         fmt = DebDirectoryOutput()
     else:

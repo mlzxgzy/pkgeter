@@ -57,16 +57,19 @@ class RpmBackend(PmBackend):
         For each repository:
 
         * Downloads ``repomd.xml`` to discover the location and SHA256 of the
-          primary metadata file.
+          primary metadata file and (optionally) filelists.
         * Checks a per-repo file cache (``~/.config/pkgeter/sources/rpm/``)
           and skips the download when the cached file's SHA256 matches.
         * Downloads ``primary.xml.gz``, verifies its SHA256, caches it, and
           parses it into :class:`PackageInfo` objects.
+        * Downloads ``filelists.xml.gz`` when available and builds a
+          :class:`ProvidesIndex` for O(1) dependency resolution.
 
         Errors on individual repos are silently skipped so that a single
         unavailable repo does not break the whole resolution.
         """
         dbs: list[Dict[str, PackageInfo]] = []
+        self._filelists_cache_paths: list[Path] = []
 
         for repo in repos:
             try:
@@ -76,7 +79,19 @@ class RpmBackend(PmBackend):
             except Exception:
                 continue
 
-        return self.merge_package_dbs(dbs)
+        merged = self.merge_package_dbs(dbs)
+
+        # Build provides index from primary.xml provides + filelists.xml.gz
+        from pkgeter.deps.provides_index import ProvidesIndex
+        self.provides_index = ProvidesIndex()
+        self.provides_index.build_from_packages(merged)
+        for fl_path in self._filelists_cache_paths:
+            try:
+                self.provides_index.add_filelists(fl_path.read_bytes())
+            except Exception:
+                pass
+
+        return merged
 
     @staticmethod
     def build_download_url(base_url: str, pkg: PackageInfo) -> str:
@@ -114,21 +129,26 @@ class RpmBackend(PmBackend):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _parse_repomd(xml_data: str) -> tuple[str, str]:
-        """Parse ``repomd.xml``, extract the primary metadata href and SHA256.
+    def _parse_repomd(xml_data: str) -> dict[str, tuple[str, str]]:
+        """Parse ``repomd.xml``, extract metadata locations.
 
-        Returns a ``(href, sha256)`` tuple where *href* is the relative path
-        to the primary metadata (e.g. ``repodata/abc123-primary.xml.gz``).
+        Returns a dict mapping data type → ``(href, sha256)``.
+        Always includes ``'primary'``; may include ``'filelists'``.
+        Raises :class:`ValueError` when ``primary`` is missing.
         """
         root = ET.fromstring(xml_data)
-        data_el = root.find("repo:data[@type='primary']", NS)
-        if data_el is None:
+        result: dict[str, tuple[str, str]] = {}
+        for dtype in ("primary", "filelists"):
+            data_el = root.find(f"repo:data[@type='{dtype}']", NS)
+            if data_el is not None:
+                href_el = data_el.find("repo:location", NS)
+                href = href_el.get("href", "") if href_el is not None else ""
+                checksum_el = data_el.find("repo:checksum", NS)
+                sha256 = checksum_el.text if checksum_el is not None else ""
+                result[dtype] = (href, sha256)
+        if "primary" not in result:
             raise ValueError("No primary data element found in repomd.xml")
-        href_el = data_el.find("repo:location", NS)
-        href = href_el.get("href", "") if href_el is not None else ""
-        checksum_el = data_el.find("repo:checksum", NS)
-        sha256 = checksum_el.text if checksum_el is not None else ""
-        return href, sha256
+        return result
 
     @staticmethod
     def _parse_primary(gz_data: bytes) -> Dict[str, PackageInfo]:
@@ -214,8 +234,12 @@ class RpmBackend(PmBackend):
         sanitized = re.sub(r"[^a-zA-Z0-9]", "_", base_url)
         cache_dir = CONFIG_PATH.parent / "sources" / "rpm" / sanitized
         cache_path = cache_dir / "primary.xml.gz"
+        fl_cache_path = cache_dir / "filelists.xml.gz"
 
         source_id = self.build_source_id("rpm", base_url, repo.release, repo.arch or "")
+
+        packages: Dict[str, PackageInfo] | None = None
+        repomd_meta: dict[str, tuple[str, str]] | None = None
 
         # 1-hour cache cooldown – skip HTTP entirely when the cache is fresh
         if not force_update and cache_path.exists():
@@ -226,71 +250,79 @@ class RpmBackend(PmBackend):
                 if self.cache and self.cache.is_fresh(source_id, file_sha):
                     loaded = self.cache.load(source_id)
                     if loaded is not None:
-                        for pkg in loaded.values():
-                            pkg.base_url = repo.url
-                        return loaded
-                # SQLite miss — parse and cache
-                packages = self._parse_primary(cache_path.read_bytes())
-                for pkg in packages.values():
-                    pkg.base_url = repo.url
-                if self.cache:
-                    self.cache.store(source_id, file_sha, packages)
-                return packages
+                        packages = loaded
+                if packages is None:
+                    packages = self._parse_primary(cache_path.read_bytes())
+                    if self.cache:
+                        self.cache.store(source_id, file_sha, packages)
 
-        repomd_url = f"{base_url}/repodata/repomd.xml"
+        # Need to fetch repomd.xml
+        if packages is None:
+            repomd_url = f"{base_url}/repodata/repomd.xml"
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.get(repomd_url, follow_redirects=True)
+                resp.raise_for_status()
+            repomd_meta = self._parse_repomd(resp.text)
+            href, expected_sha256 = repomd_meta["primary"]
 
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.get(repomd_url, follow_redirects=True)
-            resp.raise_for_status()
-        repomd_xml = resp.text
+            # Check cache: if cached file's SHA256 matches, skip download
+            if cache_path.exists():
+                cached_sha256 = hashlib.sha256(cache_path.read_bytes()).hexdigest()
+                if cached_sha256 == expected_sha256:
+                    if self.cache and not force_update and self.cache.is_fresh(source_id, expected_sha256):
+                        loaded = self.cache.load(source_id)
+                        if loaded is not None:
+                            packages = loaded
+                    if packages is None:
+                        packages = self._parse_primary(cache_path.read_bytes())
+                        if self.cache:
+                            self.cache.store(source_id, expected_sha256, packages)
 
-        href, expected_sha256 = self._parse_repomd(repomd_xml)
+            # Download primary.xml.gz
+            if packages is None:
+                primary_url = f"{base_url}/{href}"
+                with httpx.Client(timeout=timeout) as client:
+                    resp = client.get(primary_url, follow_redirects=True)
+                    resp.raise_for_status()
 
-        # Check cache: if cached file's SHA256 matches, skip download
-        if cache_path.exists():
-            cached_sha256 = hashlib.sha256(cache_path.read_bytes()).hexdigest()
-            if cached_sha256 == expected_sha256:
-                # Check SQLite cache
-                if self.cache and not force_update and self.cache.is_fresh(source_id, expected_sha256):
-                    loaded = self.cache.load(source_id)
-                    if loaded is not None:
-                        for pkg in loaded.values():
-                            pkg.base_url = repo.url
-                        return loaded
-                packages = self._parse_primary(cache_path.read_bytes())
-                for pkg in packages.values():
-                    pkg.base_url = repo.url
+                data = resp.content
+                actual_sha256 = hashlib.sha256(data).hexdigest()
+                if actual_sha256 != expected_sha256:
+                    raise ValueError(
+                        f"SHA256 mismatch for {primary_url}: "
+                        f"expected {expected_sha256}, got {actual_sha256}"
+                    )
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_path.write_bytes(data)
+                packages = self._parse_primary(data)
                 if self.cache:
                     self.cache.store(source_id, expected_sha256, packages)
-                return packages
 
-        # Download primary.xml.gz
-        primary_url = f"{base_url}/{href}"
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.get(primary_url, follow_redirects=True)
-            resp.raise_for_status()
+        if packages is None:
+            return None
 
-        data = resp.content
-
-        # Verify SHA256
-        actual_sha256 = hashlib.sha256(data).hexdigest()
-        if actual_sha256 != expected_sha256:
-            raise ValueError(
-                f"SHA256 mismatch for {primary_url}: "
-                f"expected {expected_sha256}, got {actual_sha256}"
-            )
-
-        # Save to file cache
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path.write_bytes(data)
-
-        packages = self._parse_primary(data)
         for pkg in packages.values():
             pkg.base_url = repo.url
 
-        # Store in SQLite cache
-        if self.cache:
-            self.cache.store(source_id, expected_sha256, packages)
+        # --- filelists.xml.gz ---
+        # Use cached filelists if available and fresh
+        if not force_update and fl_cache_path.exists():
+            self._filelists_cache_paths.append(fl_cache_path)
+        elif repomd_meta and "filelists" in repomd_meta:
+            fl_href, fl_expected_sha = repomd_meta["filelists"]
+            try:
+                fl_url = f"{base_url}/{fl_href}"
+                with httpx.Client(timeout=timeout) as client:
+                    resp = client.get(fl_url, follow_redirects=True)
+                    resp.raise_for_status()
+                fl_data = resp.content
+                actual_sha = hashlib.sha256(fl_data).hexdigest()
+                if not fl_expected_sha or actual_sha == fl_expected_sha:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    fl_cache_path.write_bytes(fl_data)
+                    self._filelists_cache_paths.append(fl_cache_path)
+            except Exception:
+                pass  # filelists is optional, don't break on failure
 
         return packages
 

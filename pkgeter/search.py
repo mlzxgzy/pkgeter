@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Dict
 
 from pkgeter.config import Config
-from pkgeter.models import PackageInfo, RepoConfig
+from pkgeter.context import resolve_backend
+from pkgeter.models import PackageInfo
 
 
 def _search_db(
@@ -67,54 +68,20 @@ def run_search(argv: list[str]) -> int:
         return 1
 
     config = Config(args.config)
-    arch = args.arch or config.get("arch", "amd64")
-    mirror_variant = args.mirror or config.get_mirror_variant()
-    if args.cn:
-        mirror_variant = "cn"
 
-    # Determine repos and backend
-    if args.distro:
-        from pkgeter.preset import get_preset
-        distro = args.distro
-        if "@" not in distro and mirror_variant != "default":
-            distro = f"{distro}@{mirror_variant}"
-        preset = get_preset(distro)
-        if not preset:
-            print(f"Error: unknown preset '{args.distro}'", file=sys.stderr)
-            return 1
-        repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
-        backend_name = preset["backend"]
-        arch = preset.get("arch", arch or "amd64")
-        preset_label = args.distro
-    else:
-        repos_dicts = config.get_repos()
-        if not repos_dicts:
-            from pkgeter.preset import get_preset
-            fallback = "debian-bookworm"
-            if mirror_variant != "default":
-                fallback = f"debian-bookworm@{mirror_variant}"
-            preset = get_preset(fallback)
-            repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
-            backend_name = preset["backend"]
-            preset_label = "debian-bookworm"
-        else:
-            repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in repos_dicts]
-            backend_name = config.get_backend()
-            preset_label = config.get_preset_name() or None
-
-    # Instantiate backend
-    if backend_name in ("apt", "debian"):
-        from pkgeter.backend.debian import DebianBackend
-        backend = DebianBackend()
-    elif backend_name == "dnf":
-        from pkgeter.backend.rpm import DnfBackend
-        backend = DnfBackend()
-    elif backend_name == "rpm":
-        from pkgeter.backend.rpm import RpmBackend
-        backend = RpmBackend()
-    else:
-        print(f"Error: unknown backend '{backend_name}'", file=sys.stderr)
+    try:
+        ctx = resolve_backend(
+            distro=args.distro,
+            arch=args.arch,
+            mirror=args.mirror,
+            cn=args.cn,
+            config=config,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
         return 1
+    backend, repos, arch = ctx.backend, ctx.repos, ctx.arch
+    preset_label = ctx.preset_name
 
     # Download AND search per-repo so results show the origin repo
     repo_dbs: list[tuple[str, Dict[str, PackageInfo]]] = []
