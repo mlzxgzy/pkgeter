@@ -10,6 +10,7 @@ import pytest
 
 from pkgeter.models import RepoConfig
 from pkgeter.preset import (
+    _apply_mirror_variant,
     _expand_system,
     _substitute_version,
     get_preset,
@@ -394,3 +395,53 @@ class TestExpandSystem:
         }
         result = _expand_system("kylin", data)
         assert result["kylin-V10"]["mirrors"] == {}
+
+
+# ---------------------------------------------------------------------------
+# _apply_mirror_variant
+# ---------------------------------------------------------------------------
+
+
+class TestApplyMirrorVariant:
+    def test_replaces_matching_urls(self):
+        repos = [
+            RepoConfig(name="main", type="deb", url="https://deb.debian.org/debian",
+                       release="bookworm", components=["main"]),
+            RepoConfig(name="security", type="deb", url="https://security.debian.org/debian-security",
+                       release="bookworm-security", components=["main"]),
+        ]
+        url_map = {
+            "main": "https://mirrors.ustc.edu.cn/debian",
+            "security": "https://mirrors.ustc.edu.cn/debian-security",
+        }
+        result = _apply_mirror_variant(repos, url_map)
+        assert result[0].url == "https://mirrors.ustc.edu.cn/debian"
+        assert result[1].url == "https://mirrors.ustc.edu.cn/debian-security"
+
+    def test_preserves_other_fields(self):
+        repos = [
+            RepoConfig(name="main", type="deb", url="https://deb.debian.org/debian",
+                       release="bookworm", components=["main"], arch="amd64"),
+        ]
+        url_map = {"main": "https://mirrors.ustc.edu.cn/debian"}
+        result = _apply_mirror_variant(repos, url_map)
+        assert result[0].release == "bookworm"
+        assert result[0].type == "deb"
+        assert result[0].components == ["main"]
+        assert result[0].arch == "amd64"
+
+    def test_skips_repos_not_in_map(self):
+        repos = [
+            RepoConfig(name="main", url="https://example.com"),
+            RepoConfig(name="extra", url="https://extra.example.com"),
+        ]
+        url_map = {"main": "https://mirror.example.com"}
+        result = _apply_mirror_variant(repos, url_map)
+        assert result[0].url == "https://mirror.example.com"
+        assert result[1].url == "https://extra.example.com"
+
+    def test_does_not_mutate_input(self):
+        repos = [RepoConfig(name="main", url="https://example.com")]
+        url_map = {"main": "https://mirror.example.com"}
+        _apply_mirror_variant(repos, url_map)
+        assert repos[0].url == "https://example.com"

@@ -41,6 +41,24 @@ def _substitute_version(repos_raw: list[dict], version: str) -> list[dict]:
     return result
 
 
+def _apply_mirror_variant(repos: list[RepoConfig], url_map: dict[str, str]) -> list[RepoConfig]:
+    """Return a copy of *repos* with URLs replaced per *url_map* (keyed by repo name)."""
+    result = []
+    for repo in repos:
+        if repo.name in url_map:
+            result.append(RepoConfig(
+                name=repo.name,
+                type=repo.type,
+                url=url_map[repo.name],
+                release=repo.release,
+                components=list(repo.components),
+                arch=repo.arch,
+            ))
+        else:
+            result.append(repo)
+    return result
+
+
 def _expand_system(system_name: str, data: dict) -> dict[str, dict]:
     """Expand a single system entry into flat ``name -> preset`` pairs.
 
