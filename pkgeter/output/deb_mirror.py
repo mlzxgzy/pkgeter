@@ -19,11 +19,19 @@ class DebMirrorOutput(OutputFormat):
 
     def _generate_install_script(self, script_dir: str, packages: list[str]) -> str:
         pkg_list = " ".join(packages)
+        sudo_block = (
+            '# Auto-detect sudo availability\n'
+            'if ! command -v sudo >/dev/null 2>&1; then\n'
+            '    sudo() { "$@"; }\n'
+            'fi\n'
+            '\n'
+        )
         return (
             "#!/bin/bash\n"
             "# pkgeter - Offline APT package installation\n"
             f"# Target packages: {pkg_list}\n"
             "#\n"
+            f"{sudo_block}"
             'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
             'cd "$SCRIPT_DIR"\n'
             'sudo apt-get \\\n'
@@ -103,17 +111,18 @@ class DebMirrorOutput(OutputFormat):
             codename=release, arch=arch,
             packages_gz_sha256=packages_gz_sha,
             packages_gz_size=packages_gz_size,
-        ))
+        ), newline="\n")
 
         # 4. Write local.sources
         output_root = str(output_dir.resolve())
         (output_dir / "local.sources").write_text(
-            self._generate_local_sources(output_root, release))
+            self._generate_local_sources(output_root, release), newline="\n")
 
         # 5. Write install.sh
         script_path = output_dir / "install.sh"
         script_path.write_text(
-            self._generate_install_script(str(output_dir.resolve()), packages))
+            self._generate_install_script(str(output_dir.resolve()), packages),
+            newline="\n")
         script_path.chmod(0o755)
 
         return output_dir

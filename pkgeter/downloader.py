@@ -1,4 +1,4 @@
-"""Concurrent .deb downloader with progress reporting."""
+"""Concurrent .deb downloader with progress reporting and cache support."""
 
 from __future__ import annotations
 
@@ -8,9 +8,16 @@ from typing import Callable, Dict, Optional
 
 import httpx
 
+from pkgeter.cache import DownloadCache
+
 
 class Downloader:
-    """Download .deb files concurrently with optional SHA256 verification."""
+    """Download .deb files concurrently with optional SHA256 verification.
+
+    If a ``DownloadCache`` instance is provided via the *cache* parameter,
+    ``download_all`` will check the cache before making HTTP requests and
+    store newly-downloaded files in the cache for future reuse.
+    """
 
     def __init__(
         self,
@@ -19,12 +26,14 @@ class Downloader:
         concurrency: int = 5,
         timeout: int = 120,
         progress_callback: Optional[Callable[[str, int, int], None]] = None,
+        cache: Optional[DownloadCache] = None,
     ):
         self.mirror = mirror.rstrip("/")
         self.dest_dir = dest_dir
         self.concurrency = concurrency
         self.timeout = timeout
         self.progress_callback = progress_callback
+        self.cache = cache
 
     def download_all(
         self,
@@ -47,6 +56,21 @@ class Downloader:
             for name, (url, sha256, _size) in packages.items():
                 local_path = self.dest_dir / url.rsplit("/", 1)[-1]
 
+                # --- Cache check ---
+                if self.cache and sha256:
+                    cached_data = self.cache.get(url, sha256)
+                    if cached_data is not None:
+                        self.dest_dir.mkdir(parents=True, exist_ok=True)
+                        local_path.write_bytes(cached_data)
+                        results[name] = local_path
+                        completed += 1
+                        if self.progress_callback:
+                            self.progress_callback(
+                                name, completed, total,
+                            )
+                        continue
+
+                # --- Network download ---
                 try:
                     resp = client.get(url, follow_redirects=True)
                     resp.raise_for_status()
@@ -66,6 +90,10 @@ class Downloader:
 
                 except Exception as e:
                     raise RuntimeError(f"Failed to download {name}: {e}") from e
+
+                # --- Store in cache ---
+                if self.cache and sha256:
+                    self.cache.put(url, sha256, data)
 
                 completed += 1
                 if self.progress_callback:

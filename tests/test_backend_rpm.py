@@ -96,6 +96,84 @@ def test_parse_repomd_no_primary():
 
 
 # ---------------------------------------------------------------------------
+# _parse_rpm_rich_requires
+# ---------------------------------------------------------------------------
+
+
+def test_rich_requires_or_with_versions():
+    """OR rich dep with version constraints is parsed as alternatives."""
+    expr = "(python3.7dist(requests) < 2.11 or python3.7dist(requests) >= 2.11.0)"
+    result = RpmBackend._parse_rpm_rich_requires(expr)
+    assert result is not None
+    assert len(result) == 1  # one AND-group
+    group = result[0]
+    assert len(group) == 2  # two alternatives
+    assert group[0].name == "python3.7dist(requests)"
+    assert group[1].name == "python3.7dist(requests)"
+
+
+def test_rich_requires_or_bare():
+    """Simple ``(A or B)`` rich dep is parsed correctly."""
+    result = RpmBackend._parse_rpm_rich_requires("(libfoo or libbar)")
+    assert result is not None
+    assert len(result) == 1
+    assert len(result[0]) == 2
+    assert result[0][0].name == "libfoo"
+    assert result[0][1].name == "libbar"
+
+
+def test_rich_requires_and():
+    """AND rich dep is parsed as separate required groups."""
+    result = RpmBackend._parse_rpm_rich_requires("(pkgA >= 1.0 and pkgB < 2.0)")
+    assert result is not None
+    assert len(result) == 2  # two AND-groups
+    assert result[0][0].name == "pkgA"
+    assert result[1][0].name == "pkgB"
+
+
+def test_rich_requires_if():
+    """Conditional ``if`` rich dep is treated as AND (both required)."""
+    result = RpmBackend._parse_rpm_rich_requires("(pkgA if pkgB)")
+    assert result is not None
+    assert len(result) == 2
+    assert result[0][0].name == "pkgA"
+    assert result[1][0].name == "pkgB"
+
+
+def test_rich_requires_not_rich():
+    """Plain dependency names (not rich) return ``None``."""
+    assert RpmBackend._parse_rpm_rich_requires("libc.so.6()(64bit)") is None
+    assert RpmBackend._parse_rpm_rich_requires("krb5-libs") is None
+
+
+def test_rich_requires_no_parens():
+    """Dependency without surrounding parens returns ``None``."""
+    assert RpmBackend._parse_rpm_rich_requires("pkgA or pkgB") is None
+
+
+def test_rich_requires_single_clause():
+    """Single clause inside parens with no boolean op returns ``None``."""
+    assert RpmBackend._parse_rpm_rich_requires("(libfoo >= 1.0)") is None
+
+
+def test_rich_requires_empty():
+    """Empty or whitespace-only strings return ``None``."""
+    assert RpmBackend._parse_rpm_rich_requires("") is None
+
+
+def test_rich_requires_mixed_or_and():
+    """Rich dep with 3+ clauses with mixed operators in inner groups."""
+    expr = "(libA >= 1.0 or libB or libC < 3.0)"
+    result = RpmBackend._parse_rpm_rich_requires(expr)
+    assert result is not None
+    assert len(result) == 1
+    assert len(result[0]) == 3
+    assert result[0][0].name == "libA"
+    assert result[0][1].name == "libB"
+    assert result[0][2].name == "libC"
+
+
+# ---------------------------------------------------------------------------
 # _parse_primary
 # ---------------------------------------------------------------------------
 
@@ -216,6 +294,54 @@ def test_parse_primary_no_deps():
 """
     pkgs = RpmBackend._parse_primary(_compress(xml))
     assert pkgs["no-deps-pkg"].depends == []
+
+
+def test_parse_primary_rich_requires():
+    """Rich dependency expressions are split into proper AND/OR groups."""
+    xml = """\
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata xmlns="http://linux.duke.edu/metadata/common" packages="1">
+  <package type="rpm">
+    <name>docker-compose</name>
+    <arch>x86_64</arch>
+    <version epoch="0" ver="1.29" rel="2.el8"/>
+    <format>
+      <rpm:requires xmlns:rpm="http://linux.duke.edu/metadata/rpm">
+        <rpm:entry name="(python3.7dist(requests) &lt; 2.11 or python3.7dist(requests) &gt;= 2.11.0)"/>
+        <rpm:entry name="python3-pyyaml"/>
+        <rpm:entry name="(libA or libB)"/>
+      </rpm:requires>
+      <rpm:provides xmlns:rpm="http://linux.duke.edu/metadata/rpm">
+        <rpm:entry name="docker-compose"/>
+      </rpm:provides>
+    </format>
+    <location href="Packages/docker-compose-1.29-2.el8.x86_64.rpm"/>
+    <checksum type="sha256">abc123</checksum>
+  </package>
+</metadata>
+"""
+    pkgs = RpmBackend._parse_primary(_compress(xml))
+    pkg = pkgs["docker-compose"]
+
+    # Expect 3 requires groups:
+    #   [0] OR-group: python3.7dist(requests) | python3.7dist(requests)
+    #   [1] python3-pyyaml
+    #   [2] OR-group: libA | libB
+    assert len(pkg.depends) == 3
+
+    # Group 0: the OR rich dep — two alternatives
+    assert len(pkg.depends[0]) == 2
+    assert pkg.depends[0][0].name == "python3.7dist(requests)"
+    assert pkg.depends[0][1].name == "python3.7dist(requests)"
+
+    # Group 1: plain dep — single alternative
+    assert len(pkg.depends[1]) == 1
+    assert pkg.depends[1][0].name == "python3-pyyaml"
+
+    # Group 2: the OR rich dep — two alternatives
+    assert len(pkg.depends[2]) == 2
+    assert pkg.depends[2][0].name == "libA"
+    assert pkg.depends[2][1].name == "libB"
 
 
 # ---------------------------------------------------------------------------

@@ -137,25 +137,17 @@ def build_repomd_xml(primary_gz_bytes: bytes, pkg_dir: Path) -> str:
     open_size = len(open_data)
     now = str(int(time.time()))
 
-    root = ET.Element(f"{{{_REPO_NS}}}repomd")
-    root.set("xmlns", _REPO_NS)
-
-    data_el = _make_sub_element(root, "data", _REPO_NS, attrib={"type": "primary"})
-    _make_sub_element(
-        data_el,
-        "location",
-        _REPO_NS,
-        attrib={"href": "repodata/primary.xml.gz"},
+    # Using string formatting instead of ElementTree to avoid namespace conflicts
+    # from the module-level ET.register_namespace calls that affect primary.xml.
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<repomd xmlns="http://linux.duke.edu/metadata/repo">\n'
+        '  <data type="primary">\n'
+        '    <location href="repodata/primary.xml.gz"/>\n'
+        f'    <checksum type="sha256">{primary_sha256}</checksum>\n'
+        f'    <timestamp>{now}</timestamp>\n'
+        f'    <open-size>{open_size}</open-size>\n'
+        f'    <size>{primary_size}</size>\n'
+        '  </data>\n'
+        '</repomd>\n'
     )
-    _make_sub_element(
-        data_el,
-        "checksum",
-        _REPO_NS,
-        primary_sha256,
-        attrib={"type": "sha256"},
-    )
-    _make_sub_element(data_el, "timestamp", _REPO_NS, now)
-    _make_sub_element(data_el, "open-size", _REPO_NS, str(open_size))
-    _make_sub_element(data_el, "size", _REPO_NS, str(primary_size))
-
-    return ET.tostring(root, encoding="unicode", xml_declaration=True)

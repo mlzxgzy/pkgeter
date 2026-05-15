@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 import httpx
 
+import atexit
+
+from pkgeter.cache import DownloadCache
 from pkgeter.config import CONFIG_PATH, Config, parse_mirror_entry
 from pkgeter.context import resolve_backend
 from pkgeter.db.packages import download_package_db
@@ -136,6 +139,7 @@ def run_get(argv: list[str]) -> int:
     parser.add_argument("--force-update", action="store_true", help="Force cache refresh")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose/debug output")
     parser.add_argument("--output", "-o", type=Path, default=Path("./output"))
+    parser.add_argument("--repo", action="store_true", help="Generate local repository metadata (repodata/Packages.gz)")
     parser.add_argument("--config", type=Path, default=None)
     try:
         args = parser.parse_args(argv)
@@ -215,15 +219,17 @@ def run_get(argv: list[str]) -> int:
         print()
 
     # Build download info with per-package URLs
-    download_dir = args.output / ".downloads"
+    cache = DownloadCache()
+    atexit.register(cache.cleanup)
     downloader = Downloader(
         mirror="",
-        dest_dir=download_dir,
+        dest_dir=cache.cache_dir,
         progress_callback=lambda name, done, total: print(
             f"  [{done}/{total}] {name}"
         ),
+        cache=cache,
     )
-    logger.debug("Download destination: %s", download_dir)
+    logger.debug("Download cache: %s", cache.cache_dir)
     pkg_info = {}
     for name in needed:
         info = package_db[name]
@@ -235,26 +241,44 @@ def run_get(argv: list[str]) -> int:
     files = [downloaded[name].name for name in needed]
     install_script = backend.generate_install_script(files, packages)
 
-    # Output — use local mirror format by default
-    if backend.name in ("apt", "debian"):
-        from pkgeter.output.deb_mirror import DebMirrorOutput
-        fmt = DebMirrorOutput()
-    elif backend.name == "dnf":
-        from pkgeter.output.rpm_mirror import DnfMirrorOutput
-        fmt = DnfMirrorOutput()
+    # Output
+    if args.repo:
+        # Local mirror mode with self-generated repository metadata
+        if backend.name in ("apt", "debian"):
+            from pkgeter.output.deb_mirror import DebMirrorOutput
+            fmt = DebMirrorOutput()
+        elif backend.name == "dnf":
+            from pkgeter.output.rpm_mirror import DnfMirrorOutput
+            fmt = DnfMirrorOutput()
+        else:
+            from pkgeter.output.rpm_mirror import RpmMirrorOutput
+            fmt = RpmMirrorOutput()
+        logger.debug("Output format (mirror): %s", type(fmt).__name__)
+        result = fmt.execute(
+            deb_files=downloaded,
+            install_script=install_script,
+            release=args.release or "",
+            arch=arch,
+            output_dir=args.output,
+            packages=packages,
+            pkg_info=package_db,
+        )
     else:
-        from pkgeter.output.rpm_mirror import RpmMirrorOutput
-        fmt = RpmMirrorOutput()
-    logger.debug("Output format: %s", type(fmt).__name__)
-    result = fmt.execute(
-        deb_files=downloaded,
-        install_script=install_script,
-        release=args.release or "",
-        arch=arch,
-        output_dir=args.output,
-        packages=packages,
-        pkg_info=package_db,
-    )
+        # Flat directory mode
+        if backend.name in ("apt", "debian"):
+            from pkgeter.output.deb_directory import DebDirectoryOutput
+            fmt = DebDirectoryOutput()
+        else:
+            from pkgeter.output.rpm_directory import RpmDirectoryOutput
+            fmt = RpmDirectoryOutput()
+        logger.debug("Output format (flat): %s", type(fmt).__name__)
+        result = fmt.execute(
+            deb_files=downloaded,
+            install_script=install_script,
+            release=args.release or "",
+            arch=arch,
+            output_dir=args.output,
+        )
     # Save mirror_variant choice and preset name to config
     config.set_mirror_variant(mirror_variant)
     if args.distro:

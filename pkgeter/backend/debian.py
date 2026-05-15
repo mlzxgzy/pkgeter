@@ -87,6 +87,11 @@ class DebianBackend(PmBackend):
             f"# Target packages: {pkg_list}\n"
             "#\n"
             "# Install packages one by one in dependency order.\n"
+            "#\n"
+            '# Auto-detect sudo availability\n'
+            'if ! command -v sudo >/dev/null 2>&1; then\n'
+            '    sudo() { "$@"; }\n'
+            'fi\n'
             "\n"
             'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
             'cd "$SCRIPT_DIR"\n'

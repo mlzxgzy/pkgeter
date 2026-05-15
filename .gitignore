@@ -9,7 +9,6 @@ build/
 # Project
 /output/
 config.yaml
-.downloads/
 CLAUDE.md
 
 # IDE

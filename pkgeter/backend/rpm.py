@@ -29,6 +29,9 @@ NS = {
     "rpm-format": "http://linux.duke.edu/metadata/rpm",
 }
 
+# Pattern to detect RPM rich dependency expressions (boolean operators)
+_RICH_DEP_SPLIT = re.compile(r"\s+(?:and|or|if)\s+")
+
 
 class RpmBackend(PmBackend):
     """RPM/DNF backend.
@@ -118,6 +121,11 @@ class RpmBackend(PmBackend):
             f"# Target packages: {pkg_list}\n"
             "#\n"
             "# Install packages one by one in dependency order.\n"
+            "#\n"
+            '# Auto-detect sudo availability\n'
+            'if ! command -v sudo >/dev/null 2>&1; then\n'
+            '    sudo() { "$@"; }\n'
+            'fi\n'
             "\n"
             'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
             'cd "$SCRIPT_DIR"\n'
@@ -149,6 +157,52 @@ class RpmBackend(PmBackend):
         if "primary" not in result:
             raise ValueError("No primary data element found in repomd.xml")
         return result
+
+    @staticmethod
+    def _parse_rpm_rich_requires(expr: str) -> list[list[Dependency]] | None:
+        """Parse an RPM rich dependency expression into AND/OR groups.
+
+        RPM rich deps use boolean expressions wrapped in parentheses:
+
+        * ``(pkgA >= 1.0 or pkgB >= 2.0)`` → OR alternatives in one group
+        * ``(pkgA and pkgB)`` → separate AND groups
+        * ``(pkgA if pkgB)`` → conditional, both required (treated as AND)
+
+        Returns ``None`` when *expr* is a plain dependency name, not a
+        rich expression.  Version constraints within each clause are
+        stripped since the resolver does not perform version matching.
+        """
+        if not (expr.startswith("(") and expr.endswith(")")):
+            return None
+
+        inner = expr[1:-1].strip()
+
+        # Must contain at least one boolean operator to be a rich dep
+        m = _RICH_DEP_SPLIT.search(inner)
+        if not m:
+            return None
+
+        op = m.group(0).strip()
+        clauses = [c.strip() for c in _RICH_DEP_SPLIT.split(inner) if c.strip()]
+        if not clauses:
+            return None
+
+        # Extract the bare package name from each clause, dropping any
+        # version constraint (e.g. ``python3dist(requests) < 2.11``
+        # → ``python3dist(requests)``).
+        names: list[str] = []
+        for clause in clauses:
+            name_part = re.split(
+                r"\s+(?:>=|<=|!=|[<>=])\s+", clause, maxsplit=1,
+            )[0].strip()
+            names.append(name_part)
+
+        if op == "or":
+            # OR: a single AND-group with multiple alternatives
+            return [[Dependency(name=n) for n in names]]
+
+        # "and" or "if": each clause is individually required
+        return [[Dependency(name=n)] for n in names]
 
     @staticmethod
     def _parse_primary(gz_data: bytes) -> Dict[str, PackageInfo]:
@@ -197,7 +251,11 @@ class RpmBackend(PmBackend):
                     for entry in requires_el.findall("rpm-format:entry", NS):
                         dep_name = entry.get("name", "")
                         if dep_name:
-                            depends.append([Dependency(name=dep_name)])
+                            rich = RpmBackend._parse_rpm_rich_requires(dep_name)
+                            if rich is not None:
+                                depends.extend(rich)
+                            else:
+                                depends.append([Dependency(name=dep_name)])
 
                 provides_el = format_el.find("rpm-format:provides", NS)
                 if provides_el is not None:

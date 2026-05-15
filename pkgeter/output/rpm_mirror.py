@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import shutil
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
-from pkgeter.models import PackageInfo
+from pkgeter.models import Dependency, PackageInfo
 from pkgeter.output.base import OutputFormat
 from pkgeter.output.repomd_gen import build_primary_xml, build_repomd_xml
 
@@ -27,34 +27,65 @@ class RpmMirrorOutputBase(OutputFormat):
 
     def _generate_install_script(self, script_dir: str, packages: list[str]) -> str:
         pkg_list = " ".join(packages)
+        sudo_block = (
+            '# Auto-detect sudo availability\n'
+            'if ! command -v sudo >/dev/null 2>&1; then\n'
+            '    sudo() { "$@"; }\n'
+            'fi\n'
+            '\n'
+        )
         if self.use_repofrompath:
             return (
                 "#!/bin/bash\n"
                 "# pkgeter - Offline DNF package installation\n"
                 f"# Target packages: {pkg_list}\n"
                 "#\n"
+                f"{sudo_block}"
                 'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
                 'cd "$SCRIPT_DIR"\n'
-                f'sudo dnf --repofrompath=local,file://"$SCRIPT_DIR"/rpms --nogpgcheck install {pkg_list}\n'
+                f'sudo dnf --repofrompath=local,file://"$SCRIPT_DIR" --nogpgcheck install {pkg_list}\n'
             )
         return (
             "#!/bin/bash\n"
             "# pkgeter - Offline YUM package installation\n"
             f"# Target packages: {pkg_list}\n"
             "#\n"
+            f"{sudo_block}"
             'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
             'cd "$SCRIPT_DIR"\n'
+            # Replace placeholder with actual path, then run yum
+            'sed -i "s|/REPLACE_ME|$SCRIPT_DIR|g" local.repo\n'
             f'sudo yum --config="$SCRIPT_DIR/yum.conf" --nogpgcheck install {pkg_list}\n'
         )
 
-    def _generate_yum_conf(self) -> str:
-        return "[main]\ngpgcheck=0\nreposdir=$SCRIPT_DIR\n"
+    @staticmethod
+    def _clean_repodata_depends(depends: list[list[Dependency]]) -> list[list[Dependency]]:
+        """Remove file-path and RPM-internal requires from repodata entries.
 
-    def _generate_local_repo(self, rpms_dir: str) -> str:
+        File-path dependencies (e.g. ``/usr/bin/perl``, ``/bin/sh``) are
+        assumed to be provided by the base system and cannot be resolved
+        against the local repository's metadata.  Removing them from the
+        generated ``primary.xml`` prevents DNF from failing on "nothing
+        provides /usr/bin/perl" at install time.
+        """
+        result: list[list[Dependency]] = []
+        for dep_group in depends:
+            cleaned = [d for d in dep_group
+                       if not d.name.startswith("/")
+                       and not d.name.startswith("rpmlib(")
+                       and d.name != "rtld(GNU_HASH)"]
+            if cleaned:
+                result.append(cleaned)
+        return result
+
+    def _generate_yum_conf(self) -> str:
+        return "[main]\ngpgcheck=0\nreposdir=.\n"
+
+    def _generate_local_repo(self) -> str:
         return (
             "[local]\n"
             "name=Local Repository\n"
-            f"baseurl=file://{rpms_dir}\n"
+            "baseurl=file:///REPLACE_ME\n"
             "enabled=1\ngpgcheck=0\n"
         )
 
@@ -92,7 +123,7 @@ class RpmMirrorOutputBase(OutputFormat):
                     filename=f"rpms/{src_path.name}",
                     sha256=actual_sha,
                     size=file_size,
-                    depends=src.depends,
+                    depends=self._clean_repodata_depends(src.depends),
                     provides=src.provides,
                 )
             else:
@@ -108,17 +139,17 @@ class RpmMirrorOutputBase(OutputFormat):
         primary_gz = build_primary_xml(meta_pkgs)
         (repodata_dir / "primary.xml.gz").write_bytes(primary_gz)
         (repodata_dir / "repomd.xml").write_text(
-            build_repomd_xml(primary_gz, output_dir))
+            build_repomd_xml(primary_gz, output_dir), newline="\n")
 
-        # 4. Write yum.conf + local.repo
-        (output_dir / "yum.conf").write_text(self._generate_yum_conf())
-        rpms_dir_abs = rpms_dir.resolve().as_posix()
-        (output_dir / "local.repo").write_text(self._generate_local_repo(rpms_dir_abs))
+        # 4. Write yum.conf + local.repo (with REPLACE_ME placeholder)
+        (output_dir / "yum.conf").write_text(self._generate_yum_conf(), newline="\n")
+        (output_dir / "local.repo").write_text(self._generate_local_repo(), newline="\n")
 
         # 5. Write install.sh
         script_path = output_dir / "install.sh"
         script_path.write_text(
-            self._generate_install_script(str(output_dir.resolve()), packages))
+            self._generate_install_script(str(output_dir.resolve()), packages),
+            newline="\n")
         script_path.chmod(0o755)
 
         return output_dir

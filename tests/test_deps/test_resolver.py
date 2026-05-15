@@ -240,3 +240,96 @@ def test_resolve_multiple_packages():
     # pkg-a resolved first: pkg-c, pkg-a
     # then pkg-b (pkg-c already visited): pkg-b
     assert result == ["pkg-c", "pkg-a", "pkg-b"]
+
+
+# ---------------------------------------------------------------------------
+# Soft dep fallback — basename extraction for file/soname deps
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_file_path_dep_via_basename_fallback():
+    """File-path dep like /usr/bin/perl resolves via basename 'perl' when
+    provides-index lookup fails."""
+    db = {
+        "gd": _make_pkg("gd", depends=[[Dependency("/usr/bin/perl")]]),
+        "perl": _make_pkg("perl"),
+    }
+    r = Resolver(db)
+    result = r.resolve(["gd"])
+    assert "perl" in result
+    assert "gd" in result
+    assert result.index("perl") < result.index("gd")
+
+
+def test_resolve_file_path_dep_where_basename_is_missing():
+    """File-path dep where basename doesn't match any package is still
+    silently skipped (no regression on existing behavior)."""
+    db = {
+        "pkg-a": _make_pkg("pkg-a", depends=[[Dependency("/usr/bin/missing-tool")]]),
+    }
+    r = Resolver(db)
+    result = r.resolve(["pkg-a"])
+    assert result == ["pkg-a"]
+    assert "/usr/bin/missing-tool" in r.skipped.get("pkg-a", [])
+
+
+def test_resolve_soname_dep_via_stripped_fallback():
+    """Soname dep with arch annotation that can't be matched by provides
+    index is retried by stripping the () annotation."""
+    db = {
+        "pkg-a": _make_pkg("pkg-a", depends=[[Dependency("libfoo.so.3()(64bit)")]]),
+        # Package provides the base soname WITHOUT the arch annotation
+        "libfoo": _make_pkg("libfoo", provides=["libfoo.so.3"]),
+    }
+    r = Resolver(db)
+    result = r.resolve(["pkg-a"])
+    assert "libfoo" in result
+    assert "pkg-a" in result
+
+
+def test_resolve_soname_dep_no_match_even_after_stripping():
+    """Soname dep that can't be resolved even after stripping annotations
+    is still silently skipped."""
+    db = {
+        "pkg-a": _make_pkg("pkg-a", depends=[[Dependency("libfoo.so.3()(64bit)")]]),
+    }
+    r = Resolver(db)
+    result = r.resolve(["pkg-a"])
+    assert result == ["pkg-a"]
+    assert "libfoo.so.3()(64bit)" in r.skipped.get("pkg-a", [])
+
+
+def test_extract_pkg_candidate_file_path():
+    """_extract_pkg_candidate extracts basename from file paths."""
+    assert Resolver._extract_pkg_candidate("/usr/bin/perl") == "perl"
+    assert Resolver._extract_pkg_candidate("/bin/sh") == "sh"
+    assert Resolver._extract_pkg_candidate("/usr/bin/python3.10") == "python3.10"
+
+
+def test_extract_pkg_candidate_soname():
+    """_extract_pkg_candidate strips arch annotation from sonames."""
+    assert Resolver._extract_pkg_candidate("libfoo.so.3()(64bit)") == "libfoo.so.3"
+    assert Resolver._extract_pkg_candidate("libgd.so.3()(64bit)") == "libgd.so.3"
+    assert Resolver._extract_pkg_candidate("libc.so.6") == "libc.so.6"
+
+
+def test_extract_pkg_candidate_no_match():
+    """_extract_pkg_candidate returns None for non-soft deps."""
+    assert Resolver._extract_pkg_candidate("nginx") is None
+    assert Resolver._extract_pkg_candidate("") is None
+
+
+def test_resolve_file_path_dep_or_group_with_fallback():
+    """OR-dependency group: file path resolves via fallback before trying
+    the next alternative."""
+    db = {
+        "pkg-a": _make_pkg("pkg-a", depends=[[Dependency("/usr/bin/perl"), Dependency("other-perl")]]),
+        "perl": _make_pkg("perl"),
+        "other-perl": _make_pkg("other-perl"),
+    }
+    r = Resolver(db)
+    result = r.resolve(["pkg-a"])
+    # /usr/bin/perl → fallback to 'perl' → should resolve and short-circuit
+    assert "perl" in result
+    assert "other-perl" not in result  # second alternative not needed
+    assert "pkg-a" in result

@@ -104,6 +104,14 @@ class Resolver:
                         resolved_one = True
                         break
                     except ValueError:
+                        if is_soft:
+                            # Soft dep didn't resolve via name/provides — try
+                            # extracting a package name candidate as fallback.
+                            fallback = self._resolve_soft_dep_fallback(dep.name)
+                            if fallback is not None:
+                                result.extend(fallback)
+                                resolved_one = True
+                                break
                         continue
                 if not resolved_one:
                     if has_soft_dep:
@@ -125,3 +133,39 @@ class Resolver:
         if not providers:
             raise ValueError(f"No providers for virtual package '{virtual_name}'")
         return providers[0]
+
+    @staticmethod
+    def _extract_pkg_candidate(dep_name: str) -> str | None:
+        """Extract a package name candidate from a soft dependency string.
+
+        For file paths (``/usr/bin/perl``) extracts the basename ``perl``.
+        For sonames with architecture annotations (``libfoo.so.3()(64bit)``)
+        strips the annotation to produce ``libfoo.so.3``.
+        """
+        if dep_name.startswith("/"):
+            base = dep_name.rsplit("/", 1)[-1]
+            return base if base else None
+        if ".so" in dep_name:
+            # Strip architecture annotations like ()64bit
+            base = dep_name.split("(")[0] if "(" in dep_name else dep_name
+            return base if base else None
+        return None
+
+    def _resolve_soft_dep_fallback(self, dep_name: str) -> list[str] | None:
+        """Try to resolve a soft dependency by extracting a package-name
+        candidate and resolving that.
+
+        Called after the standard resolution path for *dep_name* (direct
+        package lookup followed by provides-index query) raises
+        :class:`ValueError`.
+
+        Returns the resolved package list, or ``None`` when no fallback
+        candidate could be resolved.
+        """
+        candidate = self._extract_pkg_candidate(dep_name)
+        if candidate is None or candidate == dep_name:
+            return None
+        try:
+            return self._resolve_one(candidate)
+        except ValueError:
+            return None
