@@ -166,22 +166,28 @@ def run_get(argv: list[str]) -> int:
     # Determine repos and backend
     if args.distro:
         from pkgeter.preset import get_preset
-        preset = get_preset(args.distro, mirror_variant=mirror_variant)
+        distro = args.distro
+        if "@" not in distro and mirror_variant != "default":
+            distro = f"{distro}@{mirror_variant}"
+        preset = get_preset(distro)
         if not preset:
             print(f"Error: unknown preset '{args.distro}'", file=sys.stderr)
             return 1
         repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
         backend_name = preset["backend"]
         arch = preset.get("arch", arch)
-        logger.debug("Using preset: %s (backend=%s, repos=%d)", args.distro, backend_name, len(repos))
+        logger.debug("Using preset: %s (backend=%s, repos=%d)", distro, backend_name, len(repos))
     else:
         repos_dicts = config.get_repos()
         if not repos_dicts:
             from pkgeter.preset import get_preset
-            preset = get_preset("debian-bookworm", mirror_variant=mirror_variant)
+            fallback = "debian-bookworm"
+            if mirror_variant != "default":
+                fallback = f"debian-bookworm@{mirror_variant}"
+            preset = get_preset(fallback)
             repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in preset["repos"]]
             backend_name = preset["backend"]
-            logger.debug("No repos in config, falling back to preset: debian-bookworm")
+            logger.debug("No repos in config, falling back to preset: %s", fallback)
         else:
             repos = [RepoConfig(**r) if isinstance(r, dict) else r for r in repos_dicts]
             backend_name = config.get_backend()
