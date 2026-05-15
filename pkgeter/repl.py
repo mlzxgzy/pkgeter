@@ -19,8 +19,8 @@ from pkgeter.config import Config
 class PkgeterREPL(cmd.Cmd):
     prompt = "pkgeter> "
 
-    CORE_CMDS = {"get", "repo", "preset", "search", "help", "exit"}
-    ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo", "s": "search", "se": "search"}
+    CORE_CMDS = {"get", "repo", "preset", "search", "tree", "help", "exit"}
+    ALIASES = {"quit": "exit", "bye": "exit", "h": "help", "g": "get", "r": "repo", "s": "search", "se": "search", "t": "tree"}
 
     def __init__(self):
         super().__init__()
@@ -68,7 +68,7 @@ class PkgeterREPL(cmd.Cmd):
 
     def emptyline(self) -> bool:
         from pkgeter.preset import list_presets
-        print("  Commands: get (g), repo (r), preset, search (s), help (h), exit (ex)")
+        print("  Commands: get (g), repo (r), preset, search (s), tree (t), help (h), exit (ex)")
         presets_info = list_presets()
         if presets_info:
             print("  Presets:")
@@ -150,6 +150,14 @@ class PkgeterREPL(cmd.Cmd):
                 pass
             except Exception as exc:
                 print(f"Error: {exc}", file=sys.stderr)
+        elif resolved == "tree":
+            from pkgeter.tree import run_tree
+            try:
+                run_tree(args)
+            except SystemExit:
+                pass
+            except Exception as exc:
+                print(f"Error: {exc}", file=sys.stderr)
         return False
 
     # ---- TAB completion: commands ----
@@ -207,6 +215,16 @@ class PkgeterREPL(cmd.Cmd):
 
         return []
 
+    # ---- TAB completion: tree ----
+
+    def complete_tree(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        flags = [
+            "--distro", "--release", "-r",
+            "--arch", "-a", "--mirror", "-m", "--cn",
+            "--force-update", "--output", "-o", "--config",
+        ]
+        return [f for f in flags if f.startswith(text)]
+
     # ---- TAB completion: search ----
 
     def complete_search(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
@@ -229,7 +247,7 @@ class PkgeterREPL(cmd.Cmd):
     # ---- help ----
 
     def do_help(self, _: str) -> None:
-        print("Commands (prefix matching: g=get, r=repo, s=search, pr=preset):")
+        print("Commands (prefix matching: g=get, r=repo, s=search, t=tree, pr=preset):")
         print("  get (g)    [opts]      Download packages with dependencies")
         print("               --mirror/-m Mirror variant (default, cn, …)")
         print("               --cn         Shortcut for --mirror cn")
@@ -237,6 +255,9 @@ class PkgeterREPL(cmd.Cmd):
         print("  search (s) [opts]      Search package database")
         print("               --desc         Also search in descriptions")
         print("               --force-update Force cache refresh")
+        print("  tree (t)   <packages>  Visualize dependency tree as HTML")
+        print("               --distro       Distribution preset")
+        print("               --output/-o    Output file (default: ./tree.html)")
         print("  repo (r)   <command>   Manage repositories (list/add/remove)")
         print("  preset     <command>   List/apply distribution presets")
         print("  help (h)               Show this help")
@@ -250,6 +271,7 @@ class PkgeterREPL(cmd.Cmd):
         print('  g nginx --mirror cn')
         print('  s openssh')
         print('  s *sql* --desc')
+        print('  t nginx --distro debian-bookworm')
         print('  r l')
         print('  r a --name myrepo --type deb --url https://example.com')
         print('  p a debian-bookworm')
