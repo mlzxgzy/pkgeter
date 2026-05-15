@@ -174,11 +174,49 @@ class PackageCache:
             print(f"Warning: cache write failed: {exc}", file=sys.stderr)
 
     def load(self, source_id: str) -> Dict[str, PackageInfo] | None:
-        raise NotImplementedError("Task 2")
+        if self._conn is None:
+            return None
+        cur = self._conn.execute(
+            """SELECT package, version, arch, filename, sha256, size,
+                      description, depends, provides, base_url
+               FROM packages WHERE source_id = ?""",
+            (source_id,),
+        )
+        rows = cur.fetchall()
+        if not rows:
+            return None
+        packages: Dict[str, PackageInfo] = {}
+        for row in rows:
+            (name, version, arch, filename, sha256, size,
+             description, depends_raw, provides_raw, base_url) = row
+            packages[name] = PackageInfo(
+                package=name,
+                version=version,
+                arch=arch,
+                filename=filename,
+                sha256=sha256,
+                size=size,
+                description=description,
+                depends=_deserialize_depends(depends_raw),
+                provides=_deserialize_provides(provides_raw),
+                base_url=base_url,
+            )
+        return packages
 
     def search(self, query: str, source_ids: list[str] | None = None,
                search_desc: bool = False) -> list[PackageInfo]:
         raise NotImplementedError("Task 3")
 
     def clear(self, source_id: str | None = None) -> None:
-        raise NotImplementedError("Task 3")
+        if self._conn is None:
+            return
+        try:
+            with self._conn:
+                if source_id is not None:
+                    self._conn.execute("DELETE FROM packages WHERE source_id = ?", (source_id,))
+                    self._conn.execute("DELETE FROM source_meta WHERE source_id = ?", (source_id,))
+                else:
+                    self._conn.execute("DELETE FROM packages")
+                    self._conn.execute("DELETE FROM source_meta")
+        except sqlite3.Error as exc:
+            print(f"Warning: cache clear failed: {exc}", file=sys.stderr)

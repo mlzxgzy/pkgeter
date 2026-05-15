@@ -73,3 +73,63 @@ class TestStoreAndFresh:
         cache.store(SOURCE_ID, "new_sha", new_pkgs)
         assert cache.is_fresh(SOURCE_ID, "new_sha") is True
         assert cache.is_fresh(SOURCE_ID, "old_sha") is False
+
+
+class TestLoad:
+    def test_load_returns_none_when_empty(self, cache):
+        assert cache.load(SOURCE_ID) is None
+
+    def test_load_round_trip(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        loaded = cache.load(SOURCE_ID)
+        assert loaded is not None
+        assert set(loaded.keys()) == {"nginx", "curl"}
+
+        nginx = loaded["nginx"]
+        assert nginx.package == "nginx"
+        assert nginx.version == "1.22.1-9"
+        assert nginx.arch == "amd64"
+        assert nginx.filename == "pool/main/n/nginx/nginx_1.22.1-9_amd64.deb"
+        assert nginx.sha256 == "abc123"
+        assert nginx.size == 123456
+        assert nginx.description == "Small, powerful, scalable web/proxy server"
+        assert nginx.base_url == "https://deb.debian.org/debian"
+
+        # Verify depends round-trip
+        assert len(nginx.depends) == 2
+        assert nginx.depends[0][0].name == "libc6"
+        assert nginx.depends[0][0].version_operator == ">="
+        assert nginx.depends[0][0].version == "2.34"
+        assert len(nginx.depends[1]) == 2  # OR group
+        assert nginx.depends[1][0].name == "libpcre2-8-0"
+        assert nginx.depends[1][1].name == "libpcre3"
+
+        # Verify provides round-trip
+        assert nginx.provides == ["httpd", "httpd-cgi"]
+
+    def test_load_empty_depends_and_provides(self, cache, sample_packages):
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        loaded = cache.load(SOURCE_ID)
+        curl = loaded["curl"]
+        assert curl.provides == []
+        assert len(curl.depends) == 1
+
+
+class TestClear:
+    def test_clear_specific_source(self, cache, sample_packages):
+        other_id = "deb:other:bookworm:amd64:main"
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        cache.store(other_id, "other_sha", {"curl": sample_packages["curl"]})
+
+        cache.clear(SOURCE_ID)
+        assert cache.load(SOURCE_ID) is None
+        assert cache.load(other_id) is not None
+
+    def test_clear_all(self, cache, sample_packages):
+        other_id = "deb:other:bookworm:amd64:main"
+        cache.store(SOURCE_ID, SOURCE_SHA, sample_packages)
+        cache.store(other_id, "other_sha", {"curl": sample_packages["curl"]})
+
+        cache.clear()
+        assert cache.load(SOURCE_ID) is None
+        assert cache.load(other_id) is None
