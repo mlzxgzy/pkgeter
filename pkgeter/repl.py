@@ -69,9 +69,14 @@ class PkgeterREPL(cmd.Cmd):
     def emptyline(self) -> bool:
         from pkgeter.preset import list_presets
         print("  Commands: get (g), repo (r), preset, search (s), help (h), exit (ex)")
-        presets = list_presets()
-        if presets:
-            print(f"  Presets:  {', '.join(presets)}  (type name to switch)")
+        presets_info = list_presets()
+        if presets_info:
+            print("  Presets:")
+            for system, info in sorted(presets_info.items()):
+                versions = ", ".join(info["versions"])
+                variants = info["variants"]
+                suffix = f"  (@{', @'.join(variants)})" if variants else ""
+                print(f"    {system + ':':14s} {versions}{suffix}")
         print()
         return False
 
@@ -97,8 +102,8 @@ class PkgeterREPL(cmd.Cmd):
         resolved = self._resolve(raw_cmd)
         if resolved is None:
             # Fast-switch: if input matches a preset name, apply it
-            from pkgeter.preset import list_presets, run_preset
-            if raw_cmd in list_presets():
+            from pkgeter.preset import get_preset, run_preset
+            if get_preset(raw_cmd) is not None:
                 try:
                     run_preset(["apply", raw_cmd])
                 except SystemExit:
@@ -151,8 +156,8 @@ class PkgeterREPL(cmd.Cmd):
 
     def completenames(self, text: str, *ignored) -> list[str]:
         cmds = sorted(c for c in self.CORE_CMDS if c.startswith(text))
-        from pkgeter.preset import list_presets
-        presets = sorted(p for p in list_presets() if p.startswith(text))
+        from pkgeter.preset import complete_preset_name
+        presets = complete_preset_name(text)
         return cmds + presets
 
     # ---- TAB completion: get ----
@@ -195,11 +200,10 @@ class PkgeterREPL(cmd.Cmd):
 
         # Completing preset name after "apply"
         if words >= 2:
-            # Resolve action with prefix matching
             action = self._resolve_action(parsed[1], ["apply"])
             if action == "apply":
-                from pkgeter.preset import list_presets
-                return sorted(p for p in list_presets() if p.startswith(text))
+                from pkgeter.preset import complete_preset_name
+                return complete_preset_name(text)
 
         return []
 
