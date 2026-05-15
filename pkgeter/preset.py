@@ -36,7 +36,7 @@ def _substitute_version(repos_raw: list[dict], version: str) -> list[dict]:
             if isinstance(val, str):
                 new_repo[key] = val.replace("{version}", version)
             else:
-                new_repo[key] = val
+                new_repo[key] = list(val) if isinstance(val, list) else val
         result.append(new_repo)
     return result
 

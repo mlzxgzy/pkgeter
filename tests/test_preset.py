@@ -10,6 +10,8 @@ import pytest
 
 from pkgeter.models import RepoConfig
 from pkgeter.preset import (
+    _expand_system,
+    _substitute_version,
     get_preset,
     list_presets,
     reload_presets,
@@ -271,8 +273,6 @@ class TestRunPreset:
 # _substitute_version
 # ---------------------------------------------------------------------------
 
-from pkgeter.preset import _substitute_version
-
 
 class TestSubstituteVersion:
     def test_replaces_version_in_url(self):
@@ -296,8 +296,6 @@ class TestSubstituteVersion:
 # ---------------------------------------------------------------------------
 # _expand_system
 # ---------------------------------------------------------------------------
-
-from pkgeter.preset import _expand_system
 
 
 class TestExpandSystem:
