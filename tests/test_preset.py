@@ -308,8 +308,10 @@ class TestRunPreset:
         run_preset(["list"])
         captured = capsys.readouterr()
         assert "Available presets" in captured.out
-        assert "debian-bookworm" in captured.out
-        assert "centos-9" in captured.out
+        assert "debian:" in captured.out
+        assert "bookworm" in captured.out
+        assert "centos:" in captured.out
+        assert "@cn" in captured.out
 
     def test_apply_known_preset(self, preset_file, capsys: pytest.CaptureFixture[str]):
         with patch("pkgeter.preset.Config") as MockConfig:
@@ -319,9 +321,18 @@ class TestRunPreset:
             repos_arg = instance.set_repos.call_args[0][0]
             assert len(repos_arg) == 3
             assert repos_arg[0]["name"] == "main"
+            instance.set_mirror_variant.assert_called_once_with("default")
             instance.save.assert_called_once()
             captured = capsys.readouterr()
             assert "Applied preset" in captured.out
+
+    def test_apply_with_variant(self, preset_file, capsys: pytest.CaptureFixture[str]):
+        with patch("pkgeter.preset.Config") as MockConfig:
+            instance = MockConfig.return_value
+            run_preset(["apply", "debian-bookworm@cn"])
+            instance.set_mirror_variant.assert_called_once_with("cn")
+            repos_arg = instance.set_repos.call_args[0][0]
+            assert "mirrors.ustc.edu.cn" in repos_arg[0]["url"]
 
     def test_apply_centos_preset(self, preset_file, capsys: pytest.CaptureFixture[str]):
         with patch("pkgeter.preset.Config") as MockConfig:

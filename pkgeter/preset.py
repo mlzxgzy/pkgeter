@@ -296,9 +296,15 @@ def run_preset(argv: list[str] | None = None) -> None:
         return
 
     if args.action == "list":
-        print("Available presets (edit ~/.config/pkgeter/presets.yaml to add more):")
-        for name in all_preset_names():
-            print(f"  {name}")
+        print("Available presets:")
+        for system, info in sorted(list_presets().items()):
+            versions = ", ".join(info["versions"])
+            variants = info["variants"]
+            suffix = f"  (@{', @'.join(variants)})" if variants else ""
+            print(f"  {system + ':':14s} {versions}{suffix}")
+        print()
+        print("Usage: preset apply debian-bookworm")
+        print("       preset apply debian-bookworm@cn")
         return
 
     if args.action == "apply":
@@ -308,10 +314,15 @@ def run_preset(argv: list[str] | None = None) -> None:
             sys.exit(1)
             return
 
+        if "@" in args.name:
+            _, variant = args.name.rsplit("@", 1)
+        else:
+            variant = "default"
+
         cfg = Config()
         cfg.set_backend(preset["backend"])
         cfg.set_repos([r.to_dict() for r in preset["repos"]])
-        cfg.set_mirror_variant("default")
+        cfg.set_mirror_variant(variant)
         cfg.set_preset_name(args.name)
         cfg.save()
         print(f"Applied preset {args.name!r} (backend: {preset['backend']}, "
