@@ -73,7 +73,7 @@ class PackageCache:
             conn.execute("PRAGMA journal_mode=WAL")
         self._conn = conn
         self._ensure_schema()
-        return conn
+        return self._conn
 
     def _ensure_schema(self) -> None:
         if self._conn is None:

@@ -138,24 +138,13 @@ def run_search(argv: list[str]) -> int:
     total = sum(len(db) for _, db in repo_dbs)
     print(f"Found {total} packages across {len(repo_dbs)} repos\n")
 
-    # Search — prefer SQLite cache, fall back to in-memory
-    try:
-        from pkgeter.db.package_cache import PackageCache
-        pkg_cache = PackageCache()
-        use_cache_search = True
-    except Exception:
-        use_cache_search = False
-
     for query in args.queries:
         q = query.lower()
         has_wildcards = "*" in q or "?" in q
         found_any = False
 
         for repo_name, package_db in repo_dbs:
-            if use_cache_search:
-                results = pkg_cache.search(q, search_desc=args.desc)
-            else:
-                results = _search_db(package_db, q, has_wildcards, args.desc)
+            results = _search_db(package_db, q, has_wildcards, args.desc)
             if not results:
                 continue
 
