@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Optional, Set
 
 from pkgeter.deps.virtual import find_providers
-from pkgeter.models import PackageInfo
+from pkgeter.models import Dependency, PackageInfo
 
 
 @dataclass
@@ -86,7 +86,7 @@ def _build_node(
 
 
 def _resolve_dep_group(
-    dep_group: list,
+    dep_group: list["Dependency"],
     all_pkgs: Dict[str, PackageInfo],
     installed: Set[str],
     ancestors: Set[str],
