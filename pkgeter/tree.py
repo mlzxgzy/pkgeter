@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 from pkgeter.config import Config
 from pkgeter.context import resolve_backend
-from pkgeter.deps.tree import build_dependency_tree
+from pkgeter.deps.tree import build_dependency_tree, build_install_order_trees
 from pkgeter.output.tree_html import render_tree_html
 
 
@@ -73,7 +73,10 @@ def run_tree(argv: list[str]) -> int:
     trees = build_dependency_tree(args.packages, package_db,
                                   external_index=provides_index)
 
-    # Render HTML
-    output_path = render_tree_html(trees, args.output)
+    # Build install-order trees
+    install_trees = build_install_order_trees(trees)
+
+    # Render HTML (embeds both full and install-order datasets)
+    output_path = render_tree_html(trees, args.output, install_trees=install_trees)
     print(f"Dependency tree written to: {output_path}")
     return 0

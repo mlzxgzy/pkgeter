@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, Optional, Set
 
@@ -24,6 +25,8 @@ class TreeNode:
     is_duplicate: bool = False
     provider: str = ""
     or_alternatives: list[str] = field(default_factory=list)
+    reverse_deps: list[str] = field(default_factory=list)
+    install_layer: int = 0
 
 
 def _build_provides_index(all_pkgs: Dict[str, PackageInfo]) -> Dict[str, list[str]]:
@@ -67,6 +70,94 @@ def build_dependency_tree(
                            external_index=external_index)
         trees.append(tree)
     return trees
+
+
+def build_install_order_trees(trees: list[TreeNode]) -> list[TreeNode]:
+    """Build deduplicated install-order trees from the full dependency trees.
+
+    Algorithm:
+    1. Walk all (parent->child) edges from the full trees, collecting unique pkgs
+    2. Build forward index (pkg->its deps) and reverse index (pkg->its dependents)
+    3. Roots = packages with no dependencies of their own (foundation libs)
+    4. For each root, BFS through the reverse index to grow a tree:
+       children = packages that depend on the root, each assigned exactly once
+    5. Nodes get install_layer (distance from root) and reverse_deps populated
+    """
+    # Step 1: Walk all trees, collect edges + versions
+    edges: set[tuple[str, str]] = set()  # (parent, child) = parent depends on child
+    all_names: set[str] = set()
+    versions: dict[str, str] = {}
+
+    def _walk(node: TreeNode, parent_name: str | None = None) -> None:
+        # If the node is virtual, use the actual provider name instead
+        actual_name = node.provider if node.is_virtual and node.provider else node.name
+        all_names.add(actual_name)
+        if actual_name not in versions or not versions[actual_name]:
+            versions[actual_name] = node.version if not node.is_virtual else ""
+        if parent_name is not None:
+            edges.add((parent_name, actual_name))
+        for child in node.children:
+            _walk(child, actual_name)
+
+    for tree in trees:
+        _walk(tree)
+
+    if not all_names:
+        return []
+
+    # Step 2: Build indexes
+    reverse: dict[str, set[str]] = {p: set() for p in all_names}
+    forward: dict[str, set[str]] = {p: set() for p in all_names}
+
+    for parent, child in edges:
+        reverse[child].add(parent)
+        forward[parent].add(child)
+
+    # Step 3: Find roots = packages with no deps of their own
+    roots = sorted(p for p in all_names if not forward[p])
+
+    # Step 4: Build reverse-dep trees using BFS, assigning each pkg exactly once
+    assigned: set[str] = set(roots)
+    root_trees: list[TreeNode] = []
+
+    for root in roots:
+        root_node = TreeNode(
+            name=root,
+            version=versions.get(root, ""),
+            install_layer=0,
+            reverse_deps=sorted(reverse.get(root, set())),
+        )
+        queue = deque([(root_node, root, 0)])
+        visited_local = {root}
+
+        while queue:
+            parent_node, parent_name, layer = queue.popleft()
+            for dependent in sorted(reverse.get(parent_name, set())):
+                if dependent not in visited_local and dependent not in assigned:
+                    visited_local.add(dependent)
+                    assigned.add(dependent)
+                    child_node = TreeNode(
+                        name=dependent,
+                        version=versions.get(dependent, ""),
+                        install_layer=layer + 1,
+                        reverse_deps=sorted(reverse.get(dependent, set())),
+                    )
+                    parent_node.children.append(child_node)
+                    queue.append((child_node, dependent, layer + 1))
+
+        root_trees.append(root_node)
+
+    # Step 5: Handle any remaining unassigned packages
+    remaining = sorted(all_names - assigned)
+    for name in remaining:
+        root_trees.append(TreeNode(
+            name=name,
+            version=versions.get(name, ""),
+            install_layer=0,
+            reverse_deps=sorted(reverse.get(name, set())),
+        ))
+
+    return root_trees
 
 
 def _find_providers_fast(

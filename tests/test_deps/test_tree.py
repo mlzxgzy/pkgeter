@@ -2,7 +2,7 @@
 
 import pytest
 
-from pkgeter.deps.tree import TreeNode, build_dependency_tree
+from pkgeter.deps.tree import TreeNode, build_dependency_tree, build_install_order_trees
 from pkgeter.models import PackageInfo, Dependency
 
 
@@ -280,3 +280,88 @@ def test_tree_with_sample_packages_gz():
     assert len(trees) == 1
     assert trees[0].name == first_pkg
     assert trees[0].version == db[first_pkg].version
+
+
+# ── build_install_order_trees tests ──────────────────────────────────────────
+
+
+def test_install_order_empty():
+    """Empty input returns an empty list."""
+    assert build_install_order_trees([]) == []
+
+
+def test_install_order_single_package():
+    """A single package with no deps is its own install-order tree."""
+    db = {"nginx": _make_pkg("nginx", "1.22.1")}
+    trees = build_dependency_tree(["nginx"], db)
+    install_trees = build_install_order_trees(trees)
+    assert len(install_trees) >= 1
+    names = {t.name for t in install_trees}
+    assert "nginx" in names
+
+
+def test_install_order_chain():
+    """In a target->dep chain, the dep (no deps of its own) becomes the root."""
+    db = {
+        "app": _make_pkg("app", depends=[[Dependency("libfoo")]]),
+        "libfoo": _make_pkg("libfoo"),
+    }
+    trees = build_dependency_tree(["app"], db)
+    install_trees = build_install_order_trees(trees)
+    root_names = {t.name for t in install_trees}
+    assert "libfoo" in root_names
+    libfoo_root = next(t for t in install_trees if t.name == "libfoo")
+    child_names = {c.name for c in libfoo_root.children}
+    assert "app" in child_names
+
+
+def test_install_order_diamond():
+    """Shared dependencies appear only once in install-order trees."""
+    db = {
+        "app1": _make_pkg("app1", depends=[[Dependency("libcommon")]]),
+        "app2": _make_pkg("app2", depends=[[Dependency("libcommon")]]),
+        "libcommon": _make_pkg("libcommon"),
+    }
+    trees = build_dependency_tree(["app1", "app2"], db)
+    install_trees = build_install_order_trees(trees)
+    assert any(t.name == "libcommon" for t in install_trees)
+
+    def count_name(nodes, name):
+        c = 0
+        for n in nodes:
+            if n.name == name:
+                c += 1
+            c += count_name(n.children, name)
+        return c
+
+    total = count_name(install_trees, "libcommon")
+    assert total == 1, f"libcommon appears {total} times, expected 1"
+
+
+def test_install_order_virtual_package():
+    """Virtual package resolution preserves provider info."""
+    db = {
+        "app": _make_pkg("app", depends=[[Dependency("mail-transport-agent")]]),
+        "postfix": _make_pkg("postfix", provides=["mail-transport-agent"]),
+    }
+    trees = build_dependency_tree(["app"], db)
+    install_trees = build_install_order_trees(trees)
+    assert any(t.name == "postfix" for t in install_trees)
+
+
+def test_install_order_reverse_deps():
+    """Each node's reverse_deps lists packages that depend on it."""
+    db = {
+        "app1": _make_pkg("app1", depends=[[Dependency("libfoo")]]),
+        "app2": _make_pkg("app2", depends=[[Dependency("libfoo")]]),
+        "libfoo": _make_pkg("libfoo"),
+    }
+    trees = build_dependency_tree(["app1", "app2"], db)
+    install_trees = build_install_order_trees(trees)
+    libfoo = None
+    for t in install_trees:
+        if t.name == "libfoo":
+            libfoo = t
+            break
+    assert libfoo is not None
+    assert set(libfoo.reverse_deps) == {"app1", "app2"}
