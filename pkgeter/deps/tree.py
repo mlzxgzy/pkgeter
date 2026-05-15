@@ -116,10 +116,6 @@ def build_install_order_trees(trees: list[TreeNode]) -> list[TreeNode]:
     # Step 3: Find roots = packages with no deps of their own
     roots = sorted(p for p in all_names if not forward[p])
 
-    # Also handle packages that aren't in any edge
-    orphan_roots = sorted(all_names - set(forward.keys()) - set(reverse.keys()))
-    roots.extend(o for o in orphan_roots if o not in roots)
-
     # Step 4: Build reverse-dep trees using BFS, assigning each pkg exactly once
     assigned: set[str] = set(roots)
     root_trees: list[TreeNode] = []

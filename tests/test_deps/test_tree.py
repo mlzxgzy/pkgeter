@@ -285,6 +285,11 @@ def test_tree_with_sample_packages_gz():
 # ── build_install_order_trees tests ──────────────────────────────────────────
 
 
+def test_install_order_empty():
+    """Empty input returns an empty list."""
+    assert build_install_order_trees([]) == []
+
+
 def test_install_order_single_package():
     """A single package with no deps is its own install-order tree."""
     db = {"nginx": _make_pkg("nginx", "1.22.1")}
