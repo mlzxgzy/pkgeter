@@ -39,7 +39,7 @@ pkgeter = "pkgeter.__main__:main"
 include = ["pkgeter*"]
 
 [tool.setuptools.package-data]
-pkgeter = ["data/*.yaml"]
+pkgeter = ["data/*.yaml", "data/*.html", "data/*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
