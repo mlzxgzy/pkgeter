@@ -12,6 +12,7 @@ from pkgeter.models import RepoConfig
 from pkgeter.preset import (
     _apply_mirror_variant,
     _expand_system,
+    _load_presets,
     _substitute_version,
     get_preset,
     list_presets,
@@ -25,57 +26,46 @@ from pkgeter.preset import (
 # ---------------------------------------------------------------------------
 
 SAMPLE_PRESETS_YAML = """\
-debian-bookworm:
-  backend: debian
+debian:
+  backend: apt
   arch: amd64
+  versions: [bookworm, bullseye]
   repos:
     - name: main
       type: deb
       url: https://deb.debian.org/debian
-      release: bookworm
+      release: "{version}"
       components: [main]
     - name: security
       type: deb
       url: https://security.debian.org/debian-security
-      release: bookworm-security
+      release: "{version}-security"
       components: [main]
     - name: updates
       type: deb
       url: https://deb.debian.org/debian
-      release: bookworm-updates
+      release: "{version}-updates"
       components: [main]
-debian-bullseye:
-  backend: debian
-  arch: amd64
-  repos:
-    - name: main
-      type: deb
-      url: https://deb.debian.org/debian
-      release: bullseye
-      components: [main]
-    - name: security
-      type: deb
-      url: https://security.debian.org/debian-security
-      release: bullseye-security
-      components: [main]
-    - name: updates
-      type: deb
-      url: https://deb.debian.org/debian
-      release: bullseye-updates
-      components: [main]
-centos-9:
+  mirrors:
+    cn:
+      main: https://mirrors.ustc.edu.cn/debian
+      security: https://mirrors.ustc.edu.cn/debian-security
+      updates: https://mirrors.ustc.edu.cn/debian
+
+centos:
   backend: rpm
   arch: x86_64
+  versions: ["9"]
   repos:
     - name: baseos
       type: rpm
-      url: https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os
+      url: https://mirror.stream.centos.org/{version}-stream/BaseOS/x86_64/os
     - name: appstream
       type: rpm
-      url: https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os
+      url: https://mirror.stream.centos.org/{version}-stream/AppStream/x86_64/os
     - name: epel
       type: rpm
-      url: https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64
+      url: https://dl.fedoraproject.org/pub/epel/{version}/Everything/x86_64
 """
 
 
@@ -155,16 +145,15 @@ class TestRepoConfig:
 
 class TestPresetsContent:
     def test_expected_presets_exist(self, preset_file):
-        """The three required presets are defined."""
-        names = list_presets()
-        assert "debian-bookworm" in names
-        assert "debian-bullseye" in names
-        assert "centos-9" in names
+        presets = _load_presets()
+        assert "debian-bookworm" in presets
+        assert "debian-bullseye" in presets
+        assert "centos-9" in presets
 
     def test_debian_bookworm_structure(self, preset_file):
         preset = get_preset("debian-bookworm")
         assert preset is not None
-        assert preset["backend"] == "debian"
+        assert preset["backend"] == "apt"
         assert preset["arch"] == "amd64"
         repos = preset["repos"]
         assert len(repos) == 3
@@ -192,6 +181,28 @@ class TestPresetsContent:
         assert len(repos) == 3
         assert repos[0].name == "baseos"
         assert repos[0].type == "rpm"
+        assert "9-stream" in repos[0].url
+
+    def test_mirror_variant(self, preset_file):
+        preset = get_preset("debian-bookworm@cn")
+        assert preset is not None
+        assert "mirrors.ustc.edu.cn" in preset["repos"][0].url
+        assert preset["repos"][0].release == "bookworm"
+
+    def test_mirror_variant_via_parameter(self, preset_file):
+        preset = get_preset("debian-bookworm", mirror_variant="cn")
+        assert preset is not None
+        assert "mirrors.ustc.edu.cn" in preset["repos"][0].url
+
+    def test_at_variant_overrides_parameter(self, preset_file):
+        preset = get_preset("debian-bookworm@cn", mirror_variant="default")
+        assert "mirrors.ustc.edu.cn" in preset["repos"][0].url
+
+    def test_unknown_variant_falls_back(self, preset_file, capsys):
+        preset = get_preset("debian-bookworm@jp")
+        assert preset is not None
+        assert "deb.debian.org" in preset["repos"][0].url
+        assert "Warning" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -218,10 +229,14 @@ class TestListPresets:
 
 class TestGetPreset:
     def test_known_preset(self, preset_file):
-        assert get_preset("debian-bookworm")["backend"] == "debian"
+        assert get_preset("debian-bookworm")["backend"] == "apt"
 
     def test_unknown_preset_returns_none(self, preset_file):
         assert get_preset("foobar") is None
+
+    def test_default_variant_returns_base_repos(self, preset_file):
+        preset = get_preset("debian-bookworm")
+        assert "deb.debian.org" in preset["repos"][0].url
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +256,7 @@ class TestRunPreset:
         with patch("pkgeter.preset.Config") as MockConfig:
             instance = MockConfig.return_value
             run_preset(["apply", "debian-bookworm"])
-            instance.set_backend.assert_called_once_with("debian")
+            instance.set_backend.assert_called_once_with("apt")
             repos_arg = instance.set_repos.call_args[0][0]
             assert len(repos_arg) == 3
             assert repos_arg[0]["name"] == "main"

@@ -111,26 +111,24 @@ def _expand_system(system_name: str, data: dict) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 
 _PRESETS_CACHE: dict[str, Any] | None = None
+_SYSTEMS_CACHE: dict[str, dict] | None = None
 
 
 def _load_presets() -> dict[str, Any]:
-    """Load presets, merging built-in defaults with user overrides.
+    """Load presets from hierarchical YAML, expanding into a flat mapping.
 
     Built-in presets come from ``pkgeter/data/presets.yaml``.
     User presets live in ``~/.config/pkgeter/presets.yaml`` and override
-    built-in entries of the same name.  User-only entries are preserved.
+    built-in entries of the same system name.
     """
-    global _PRESETS_CACHE
+    global _PRESETS_CACHE, _SYSTEMS_CACHE
     if _PRESETS_CACHE is not None:
         return _PRESETS_CACHE
 
     # 1. Read built-in presets
     builtin: dict[str, Any] = {}
     if _BUILTIN_PRESETS.exists():
-        raw = yaml.safe_load(_BUILTIN_PRESETS.read_text(encoding="utf-8")) or {}
-        for name, data in raw.items():
-            if isinstance(data, dict):
-                builtin[name] = data
+        builtin = yaml.safe_load(_BUILTIN_PRESETS.read_text(encoding="utf-8")) or {}
 
     # 2. Read (or create) user presets
     if not _USER_PRESETS.exists():
@@ -138,34 +136,53 @@ def _load_presets() -> dict[str, Any]:
         if _BUILTIN_PRESETS.exists():
             import shutil
             shutil.copy2(_BUILTIN_PRESETS, _USER_PRESETS)
-        user_raw = {}
+        user_raw: dict[str, Any] = {}
     else:
         user_raw = yaml.safe_load(_USER_PRESETS.read_text(encoding="utf-8")) or {}
 
-    # 3. Merge: user overrides built-in
+    # 3. Merge: user overrides built-in (keyed by system name)
     merged = {**builtin, **user_raw}
 
-    # 4. Parse into internal format (RepoConfig objects)
+    # 4. Expand hierarchical entries into flat preset mapping
     presets: dict[str, Any] = {}
-    for name, data in merged.items():
-        if not isinstance(data, dict):
+    systems: dict[str, dict] = {}
+
+    for system_name, data in merged.items():
+        if not isinstance(data, dict) or "versions" not in data:
             continue
-        repos = [RepoConfig.from_dict(r) for r in data.get("repos", [])]
-        presets[name] = {
-            "backend": data.get("backend", ""),
-            "arch": data.get("arch", ""),
-            "repos": repos,
-            "mirrors": data.get("mirrors"),
+        expanded = _expand_system(system_name, data)
+        presets.update(expanded)
+
+        # Build system info for list_presets()
+        versions_raw = data["versions"]
+        if isinstance(versions_raw, list):
+            versions_list = [str(v) for v in versions_raw]
+            variants = sorted(data.get("mirrors", {}).keys())
+        else:
+            versions_list = [str(v) for v in versions_raw.keys()]
+            all_variants: set[str] = set()
+            for ver_data in versions_raw.values():
+                if isinstance(ver_data, dict):
+                    all_variants.update(ver_data.get("mirrors", {}).keys())
+            if not all_variants:
+                all_variants.update(data.get("mirrors", {}).keys())
+            variants = sorted(all_variants)
+
+        systems[system_name] = {
+            "versions": versions_list,
+            "variants": variants,
         }
 
     _PRESETS_CACHE = presets
+    _SYSTEMS_CACHE = systems
     return presets
 
 
 def reload_presets() -> None:
     """Clear cache so presets are re-read from disk on next access."""
-    global _PRESETS_CACHE
+    global _PRESETS_CACHE, _SYSTEMS_CACHE
     _PRESETS_CACHE = None
+    _SYSTEMS_CACHE = None
 
 
 # ---------------------------------------------------------------------------
@@ -181,40 +198,35 @@ def list_presets() -> list[str]:
 def get_preset(name: str, mirror_variant: str = "default") -> dict | None:
     """Return the preset dict for *name*, or ``None`` if unknown.
 
-    If the preset defines a ``mirrors`` map and *mirror_variant* is
-    present inside it the variant's repos are used.  When the variant
-    is unknown a warning is printed and the ``default`` variant is used
-    as fallback.
+    *name* may contain an ``@variant`` suffix (e.g. ``debian-bookworm@cn``).
+    Priority: ``@variant`` in name > *mirror_variant* parameter.
     """
-    raw = _load_presets().get(name)
+    if "@" in name:
+        base_name, variant = name.rsplit("@", 1)
+    else:
+        base_name = name
+        variant = mirror_variant
+
+    raw = _load_presets().get(base_name)
     if raw is None:
         return None
 
     preset = {
         "backend": raw["backend"],
         "arch": raw.get("arch", ""),
-        "repos": raw.get("repos", []),
+        "repos": list(raw.get("repos", [])),
     }
 
-    mirrors: dict | None = raw.get("mirrors")
-    if mirrors:
-        if mirror_variant in mirrors:
-            variant = mirrors[mirror_variant]
-            preset["repos"] = [RepoConfig.from_dict(r) for r in variant.get("repos", [])]
-        elif mirror_variant != "default":
+    if variant != "default":
+        mirrors = raw.get("mirrors", {})
+        if variant in mirrors:
+            preset["repos"] = _apply_mirror_variant(preset["repos"], mirrors[variant])
+        else:
             print(
-                f"Warning: mirror variant '{mirror_variant}' not found "
-                f"in preset '{name}', falling back to 'default'",
+                f"Warning: mirror variant '{variant}' not found "
+                f"in preset '{base_name}', using default",
                 file=sys.stderr,
             )
-            # default variant inside mirrors takes precedence over top-level repos
-            if "default" in mirrors:
-                preset["repos"] = [RepoConfig.from_dict(r) for r in mirrors["default"].get("repos", [])]
-        else:
-            # mirror_variant == "default" but mirrors dict exists —
-            # use default variant from mirrors if present, else top-level repos
-            if "default" in mirrors:
-                preset["repos"] = [RepoConfig.from_dict(r) for r in mirrors["default"].get("repos", [])]
 
     return preset
 
