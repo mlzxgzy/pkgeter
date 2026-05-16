@@ -174,6 +174,8 @@ def run_get(argv: list[str]) -> int:
         return 1
     backend, repos, arch = ctx.backend, ctx.repos, ctx.arch
     mirror_variant = ctx.mirror_variant
+    # Determine release from CLI flag or the first configured repo
+    release_name = args.release or (repos[0].release if repos else "")
 
     # Download package DB
     print("Loading package database...")
@@ -257,7 +259,7 @@ def run_get(argv: list[str]) -> int:
         result = fmt.execute(
             deb_files=downloaded,
             install_script=install_script,
-            release=args.release or "",
+            release=release_name,
             arch=arch,
             output_dir=args.output,
             packages=packages,
@@ -275,7 +277,7 @@ def run_get(argv: list[str]) -> int:
         result = fmt.execute(
             deb_files=downloaded,
             install_script=install_script,
-            release=args.release or "",
+            release=release_name,
             arch=arch,
             output_dir=args.output,
         )

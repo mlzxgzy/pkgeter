@@ -14,7 +14,7 @@ def _make_fake_deb(path: Path, content: str = "deb-data") -> Path:
 
 
 def test_deb_mirror_basic_structure(tmp_path):
-    """DebMirrorOutput creates debs/, dists/, local.sources, install.sh."""
+    """DebMirrorOutput creates debs/, dists/, local.list, install.sh."""
     src = tmp_path / "src"
     src.mkdir()
     deb_path = _make_fake_deb(src / "vsftpd_3.0.5-3_amd64.deb")
@@ -33,7 +33,7 @@ def test_deb_mirror_basic_structure(tmp_path):
     assert (result / "dists" / "bookworm").is_dir()
     assert (result / "dists" / "bookworm" / "main" / "binary-amd64" / "Packages.gz").exists()
     assert (result / "dists" / "bookworm" / "main" / "binary-amd64" / "Release").exists()
-    assert (result / "local.sources").exists()
+    assert (result / "local.list").exists()
     assert (result / "install.sh").exists()
 
 
@@ -55,7 +55,7 @@ def test_deb_mirror_deb_files_copied(tmp_path):
 
 
 def test_deb_mirror_local_sources(tmp_path):
-    """local.sources points to the output root with dists/ layout."""
+    """local.list points to the output root with dists/ layout."""
     src = tmp_path / "src"
     src.mkdir()
     deb_path = _make_fake_deb(src / "pkg_1.0-1_amd64.deb")
@@ -66,7 +66,7 @@ def test_deb_mirror_local_sources(tmp_path):
         install_script="", release="bookworm", arch="amd64",
         output_dir=tmp_path / "output", packages=["pkg"],
     )
-    sources = (result / "local.sources").read_text()
+    sources = (result / "local.list").read_text()
     assert "[trusted=yes]" in sources
     assert "file:./" in sources
     assert "bookworm" in sources
@@ -89,7 +89,7 @@ def test_deb_mirror_install_script(tmp_path):
     assert "#!/bin/bash" in script
     assert "sudo apt-get" in script
     assert "printf" in script
-    assert "local.sources" in script
+    assert "local.list" in script
     assert "Dir::Etc::sourcelist" in script
     assert "install pkg" in script
 

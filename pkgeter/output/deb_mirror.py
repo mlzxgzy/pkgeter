@@ -36,22 +36,22 @@ class DebMirrorOutput(OutputFormat):
             'cd "$SCRIPT_DIR"\n'
             '# Generate sources file with absolute path (relocatable, no sed fragility)\n'
             f"printf 'deb [trusted=yes] file://%s {release} main\\n' "
-            f'"$SCRIPT_DIR" > "$SCRIPT_DIR/local.sources"\n'
+            f'"$SCRIPT_DIR" > "$SCRIPT_DIR/local.list"\n'
             'sudo apt-get \\\n'
-            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.sources" \\\n'
+            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.list" \\\n'
             '  -o Dir::Etc::sourceparts=/dev/null \\\n'
             '  -o Acquire::AllowInsecureRepositories=yes \\\n'
             '  -o APT::Get::List-Cleanup="0" \\\n'
             '  update\n'
             'sudo apt-get \\\n'
-            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.sources" \\\n'
+            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.list" \\\n'
             '  -o Dir::Etc::sourceparts=/dev/null \\\n'
             '  -o APT::Get::List-Cleanup="0" \\\n'
             f'  install {pkg_list}\n'
         )
 
     def _generate_local_sources(self, release: str) -> str:
-        """Generate a template ``local.sources`` entry (for reference only).
+        """Generate a template ``local.list`` entry (for reference only).
 
         The real sources file is generated at install time by ``install.sh``
         using ``printf`` with the actual ``$SCRIPT_DIR``, so the mirror is
@@ -119,8 +119,8 @@ class DebMirrorOutput(OutputFormat):
             packages_gz_size=packages_gz_size,
         ), newline="\n")
 
-        # 4. Write local.sources
-        (output_dir / "local.sources").write_text(
+        # 4. Write local.list
+        (output_dir / "local.list").write_text(
             self._generate_local_sources(release), newline="\n")
 
         # 5. Write install.sh
