@@ -277,6 +277,35 @@ class RpmBackend(PmBackend):
         return packages
 
     # ------------------------------------------------------------------
+    # SHA256 sidecar helpers — avoid re-hashing large primary.xml.gz on cache hit
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _sidecar_path(cache_path: Path) -> Path:
+        """Path to the SHA256 sidecar file for *cache_path*."""
+        return cache_path.with_suffix(".xml.gz.sha256")
+
+    @staticmethod
+    def _read_sha256_sidecar(cache_path: Path) -> str | None:
+        """Read the previously-stored SHA256 hex digest from the sidecar file.
+
+        Returns ``None`` when the sidecar is missing or unreadable.
+        """
+        sidecar = cache_path.with_suffix(".xml.gz.sha256")
+        try:
+            return sidecar.read_text().strip()
+        except (FileNotFoundError, OSError):
+            return None
+
+    @staticmethod
+    def _write_sha256_sidecar(cache_path: Path, sha256_hex: str) -> None:
+        """Write *sha256_hex* to the sidecar file next to *cache_path*."""
+        try:
+            cache_path.with_suffix(".xml.gz.sha256").write_text(sha256_hex)
+        except OSError:
+            pass  # non-fatal — fall back to full-hash next time
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -303,16 +332,20 @@ class RpmBackend(PmBackend):
         if not force_update and cache_path.exists():
             age = time.time() - cache_path.stat().st_mtime
             if age < 3600:
-                # Check SQLite cache first
-                file_sha = hashlib.sha256(cache_path.read_bytes()).hexdigest()
-                if self.cache and self.cache.is_fresh(source_id, file_sha):
+                # Read SHA256 from sidecar (64 bytes) instead of hashing the full file
+                file_sha = self._read_sha256_sidecar(cache_path)
+                if file_sha and self.cache and self.cache.is_fresh(source_id, file_sha):
                     loaded = self.cache.load(source_id)
                     if loaded is not None:
                         packages = loaded
                 if packages is None:
-                    packages = self._parse_primary(cache_path.read_bytes())
+                    # Fall back to full hash + re-parse
+                    raw = cache_path.read_bytes()
+                    file_sha = hashlib.sha256(raw).hexdigest()
+                    packages = self._parse_primary(raw)
                     if self.cache:
                         self.cache.store(source_id, file_sha, packages)
+                        self._write_sha256_sidecar(cache_path, file_sha)
 
         # Need to fetch repomd.xml
         if packages is None:
@@ -325,7 +358,10 @@ class RpmBackend(PmBackend):
 
             # Check cache: if cached file's SHA256 matches, skip download
             if cache_path.exists():
-                cached_sha256 = hashlib.sha256(cache_path.read_bytes()).hexdigest()
+                # Try sidecar first to avoid re-hashing the full file
+                cached_sha256 = self._read_sha256_sidecar(cache_path)
+                if cached_sha256 is None or cached_sha256 != expected_sha256:
+                    cached_sha256 = hashlib.sha256(cache_path.read_bytes()).hexdigest()
                 if cached_sha256 == expected_sha256:
                     if self.cache and not force_update and self.cache.is_fresh(source_id, expected_sha256):
                         loaded = self.cache.load(source_id)
@@ -335,6 +371,7 @@ class RpmBackend(PmBackend):
                         packages = self._parse_primary(cache_path.read_bytes())
                         if self.cache:
                             self.cache.store(source_id, expected_sha256, packages)
+                        self._write_sha256_sidecar(cache_path, expected_sha256)
 
             # Download primary.xml.gz
             if packages is None:
@@ -352,6 +389,7 @@ class RpmBackend(PmBackend):
                     )
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 cache_path.write_bytes(data)
+                self._write_sha256_sidecar(cache_path, expected_sha256)
                 packages = self._parse_primary(data)
                 if self.cache:
                     self.cache.store(source_id, expected_sha256, packages)

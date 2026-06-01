@@ -108,6 +108,24 @@ centos-9:
         appstream: https://mirrors.ustc.edu.cn/centos-stream/9-stream/AppStream/x86_64/os
         epel: https://mirrors.ustc.edu.cn/epel/9/Everything/x86_64
 
+centos-8:
+  system: centos
+  backend: rpm
+  arch: x86_64
+  repos:
+    - name: baseos
+      type: rpm
+      url: https://mirror.stream.centos.org/8-stream/BaseOS/x86_64/os
+    - name: appstream
+      type: rpm
+      url: https://mirror.stream.centos.org/8-stream/AppStream/x86_64/os
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        baseos: https://mirrors.ustc.edu.cn/centos-vault/8-stream/BaseOS/x86_64/os
+        appstream: https://mirrors.ustc.edu.cn/centos-vault/8-stream/AppStream/x86_64/os
+
 pve-8:
   system: pve
   backend: apt
@@ -132,6 +150,40 @@ pve-8:
       type: deb
       url: https://download.proxmox.com/debian/pve
       release: bookworm
+      components: [pve-no-subscription]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/debian
+        security: https://mirrors.ustc.edu.cn/debian-security
+        updates: https://mirrors.ustc.edu.cn/debian
+        pve-no-subscription: https://mirrors.ustc.edu.cn/proxmox/debian/pve
+
+pve-9:
+  system: pve
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: trixie
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: trixie-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: trixie-updates
+      components: [main]
+    - name: pve-no-subscription
+      type: deb
+      url: https://download.proxmox.com/debian/pve
+      release: trixie
       components: [pve-no-subscription]
   mirrors:
     - name: cn
@@ -268,17 +320,13 @@ centos-7:
     - name: updates
       type: rpm
       url: http://mirror.centos.org/centos/7/updates/x86_64
-    - name: epel
-      type: rpm
-      url: https://dl.fedoraproject.org/pub/epel/7/x86_64
   mirrors:
     - name: cn
       provider: ustc
       urls:
-        base: https://mirrors.ustc.edu.cn/centos/7/os/x86_64
-        extras: https://mirrors.ustc.edu.cn/centos/7/extras/x86_64
-        updates: https://mirrors.ustc.edu.cn/centos/7/updates/x86_64
-        epel: https://mirrors.ustc.edu.cn/epel/7/x86_64
+        base: https://mirrors.ustc.edu.cn/centos-vault/7.9.2009/os/x86_64
+        extras: https://mirrors.ustc.edu.cn/centos-vault/7.9.2009/extras/x86_64
+        updates: https://mirrors.ustc.edu.cn/centos-vault/7.9.2009/updates/x86_64
 
 debian-buster:
   system: debian

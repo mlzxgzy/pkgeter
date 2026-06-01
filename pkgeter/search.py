@@ -11,6 +11,7 @@ from typing import Dict
 from pkgeter.config import Config
 from pkgeter.context import resolve_backend
 from pkgeter.models import PackageInfo
+from pkgeter.session import get_session_cache, invalidate_session_cache
 
 
 def _search_db(
@@ -69,26 +70,42 @@ def run_search(argv: list[str]) -> int:
 
     config = Config(args.config)
 
-    try:
-        ctx = resolve_backend(
-            distro=args.distro,
-            arch=args.arch,
-            mirror=args.mirror,
-            cn=args.cn,
-            config=config,
-        )
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-    backend, repos, arch = ctx.backend, ctx.repos, ctx.arch
-    preset_label = ctx.preset_name
+    # Try session cache first
+    session = get_session_cache()
+    session_hit = False
+    if session is not None:
+        cached = session.get_or_load(config, force_update=args.force_update)
+        if cached is not None:
+            ctx, merged_db = cached
+            backend, repos, arch = ctx.backend, ctx.repos, ctx.arch
+            preset_label = ctx.preset_name
+            session_hit = True
+
+    if not session_hit:
+        try:
+            ctx = resolve_backend(
+                distro=args.distro,
+                arch=args.arch,
+                mirror=args.mirror,
+                cn=args.cn,
+                config=config,
+            )
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+        backend, repos, arch = ctx.backend, ctx.repos, ctx.arch
+        preset_label = ctx.preset_name
 
     # Download AND search per-repo so results show the origin repo
     repo_dbs: list[tuple[str, Dict[str, PackageInfo]]] = []
     for repo in repos:
         try:
             print(f"  Loading {repo.name}...", end="", flush=True)
-            db = backend.download_package_db([repo], arch, force_update=args.force_update)
+            if session_hit and merged_db is not None:
+                # Session hit: only filter merged_db for this repo
+                db = {k: v for k, v in merged_db.items() if v.base_url == repo.url}
+            else:
+                db = backend.download_package_db([repo], arch, force_update=args.force_update)
             if db:
                 repo_dbs.append((repo.name, db))
                 print(f" {len(db)} packages")

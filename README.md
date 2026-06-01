@@ -1,4 +1,4 @@
-# pkgeter <small>v1.2</small>
+# pkgeter <small>v1.3</small>
 
 **English** | [中文](README_CH.md)
 

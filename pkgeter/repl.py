@@ -14,6 +14,7 @@ except ImportError:
     import pyreadline3  # noqa: F401  # Windows
 
 from pkgeter.config import Config
+from pkgeter.session import invalidate_session_cache
 
 
 class PkgeterREPL(cmd.Cmd):
@@ -127,6 +128,7 @@ class PkgeterREPL(cmd.Cmd):
             except Exception as exc:
                 print(f"Error: {exc}", file=sys.stderr)
         elif resolved == "repo":
+            invalidate_session_cache()  # repos may have changed
             from pkgeter.repo import run_repo
             try:
                 run_repo(args)
@@ -135,6 +137,7 @@ class PkgeterREPL(cmd.Cmd):
             except Exception as exc:
                 print(f"Error: {exc}", file=sys.stderr)
         elif resolved == "preset":
+            invalidate_session_cache()  # preset change affects repos/backend
             from pkgeter.preset import run_preset
             try:
                 run_preset(args)
