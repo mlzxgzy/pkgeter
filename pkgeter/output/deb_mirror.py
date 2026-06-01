@@ -17,7 +17,7 @@ class DebMirrorOutput(OutputFormat):
     name = "deb-mirror"
     description = "Output .deb files to a local apt mirror with dists/ layout"
 
-    def _generate_install_script(self, script_dir: str, packages: list[str]) -> str:
+    def _generate_install_script(self, release: str, packages: list[str]) -> str:
         pkg_list = " ".join(packages)
         sudo_block = (
             '# Auto-detect sudo availability\n'
@@ -34,24 +34,30 @@ class DebMirrorOutput(OutputFormat):
             f"{sudo_block}"
             'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n'
             'cd "$SCRIPT_DIR"\n'
+            '# Generate sources file with absolute path (relocatable, no sed fragility)\n'
+            f"printf 'deb [trusted=yes] file://%s {release} main\\n' "
+            f'"$SCRIPT_DIR" > "$SCRIPT_DIR/local.list"\n'
             'sudo apt-get \\\n'
-            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.sources" \\\n'
+            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.list" \\\n'
             '  -o Dir::Etc::sourceparts=/dev/null \\\n'
             '  -o Acquire::AllowInsecureRepositories=yes \\\n'
             '  -o APT::Get::List-Cleanup="0" \\\n'
             '  update\n'
             'sudo apt-get \\\n'
-            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.sources" \\\n'
+            '  -o Dir::Etc::sourcelist="$SCRIPT_DIR/local.list" \\\n'
             '  -o Dir::Etc::sourceparts=/dev/null \\\n'
             '  -o APT::Get::List-Cleanup="0" \\\n'
             f'  install {pkg_list}\n'
         )
 
-    def _generate_local_sources(self, base_dir: str, release: str) -> str:
-        """Generate a local sources file entry with Windows-path-safe file: URL."""
-        # Use as_posix() for Windows compatibility (file:// URLs need forward slashes)
-        base = base_dir.replace("\\", "/")
-        return f"deb [trusted=yes] file:{base} {release} main\n"
+    def _generate_local_sources(self, release: str) -> str:
+        """Generate a template ``local.list`` entry (for reference only).
+
+        The real sources file is generated at install time by ``install.sh``
+        using ``printf`` with the actual ``$SCRIPT_DIR``, so the mirror is
+        fully relocatable without any ``sed`` substitution fragility.
+        """
+        return f"deb [trusted=yes] file:./ {release} main\n"
 
     def execute(
         self,
@@ -113,15 +119,14 @@ class DebMirrorOutput(OutputFormat):
             packages_gz_size=packages_gz_size,
         ), newline="\n")
 
-        # 4. Write local.sources
-        output_root = str(output_dir.resolve())
-        (output_dir / "local.sources").write_text(
-            self._generate_local_sources(output_root, release), newline="\n")
+        # 4. Write local.list
+        (output_dir / "local.list").write_text(
+            self._generate_local_sources(release), newline="\n")
 
         # 5. Write install.sh
         script_path = output_dir / "install.sh"
         script_path.write_text(
-            self._generate_install_script(str(output_dir.resolve()), packages),
+            self._generate_install_script(release, packages),
             newline="\n")
         script_path.chmod(0o755)
 
