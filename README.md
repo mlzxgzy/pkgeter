@@ -1,22 +1,25 @@
-# pkgeter <small>v1.1</small>
+# pkgeter <small>v1.2</small>
 
 **English** | [中文](README_CH.md)
 
-**Offline package downloader** — supports **Debian/apt** and **RPM/dnf** (CentOS Stream). Resolve dependency trees, download `.deb` or `.rpm` files, and generate an offline install script.
+**Offline package downloader** — supports **Debian/apt** and **RPM/dnf** (CentOS, Kylin, RockyLinux, etc.). Resolve dependency trees, download `.deb` or `.rpm` files, generate offline install script, or produce a local apt/yum mirror.
 
 Works on any platform (Linux, Windows, macOS) — useful when you need to install packages on an air-gapped or offline machine.
 
 ## Features
 
-- **Dual backend** — supports Debian (`dpkg`) and RPM (`rpm`) based distributions
-- **Distribution presets** — one-command selection: `--distro debian-bookworm`, `--distro centos-9`
+- **Dual backend** — supports Debian (`dpkg`) and RPM (`rpm`/`dnf`/`yum`) based distributions
+- **Distribution presets** — 14+ ready-to-use presets: `--distro debian-bookworm`, `--distro centos-7`, `--distro ubuntu-noble`
 - **Interactive REPL** — run `pkgeter` with no arguments to enter a switch-style CLI with prefix matching and TAB completion
 - **Multi-repo merge** — automatically combines repositories (e.g., main + security, BaseOS + AppStream + EPEL)
 - **Dependency resolution** — recursively resolves all dependencies for the target packages
-- **Skip installed packages** — optionally provide a `dpkg -l` output to skip already-installed packages
+- **Virtual package resolution** — follows `Provides` fields for virtual dependencies with interactive provider selection
+- **Skip installed packages** — optionally provide a `dpkg -l` / `rpm -qa` output to skip already-installed packages
 - **SHA256 verification** — validates every downloaded `.deb` or `.rpm` file
-- **Source caching** — caches repository metadata with SHA256 validation (like APT), only re-downloads when changed
-- **Offline install script** — auto-generates `install.sh` that runs `dpkg -i` or `rpm -ivh` in dependency order
+- **Source caching** — caches repository metadata with SHA256 validation (SQLite-backed), only re-downloads when changed
+- **Local mirror output** — `--repo` flag generates a fully structured apt repo (`Packages.gz` + `Release`) or yum repo (`repomd.xml` + metadata)
+- **Dependency tree visualization** — `--tree` flag generates an interactive HTML dependency tree
+- **Offline install script** — auto-generates `install.sh` that runs `dpkg -i` or `rpm -ivh` in dependency order (auto-detects sudo)
 - **Multiple mirrors** — specify fallback mirrors, tried in order until one succeeds
 - **Persistent config** — preferences saved to `~/.config/pkgeter/config.yaml`
 - **Repo management** — add, list, and remove custom repositories via `pkgeter repo`
@@ -39,10 +42,16 @@ pkgeter
 # Download packages using a distribution preset
 pkgeter get -p nginx --distro debian-bookworm
 pkgeter get -p nginx --distro centos-9
-pkgeter get -p nginx --distro debian-bullseye
+pkgeter get -p nginx --distro ubuntu-noble
 
 # Short prefix forms work too
 pkgeter g -p nginx --distro centos-9
+
+# Generate local apt/yum mirror metadata (instead of flat output)
+pkgeter get -p nginx --distro debian-bookworm --repo
+
+# Generate dependency tree HTML report
+pkgeter get -p nginx --distro debian-bookworm --tree
 
 # Legacy usage (backward compatible)
 pkgeter get -p vim
@@ -64,7 +73,14 @@ pkgeter preset apply centos-9
 pkgeter get -p python3 -o ./my-output
 ```
 
-## Output
+## Output Formats
+
+Two output modes, controlled by the `--repo` flag:
+
+| Mode | Flag | Structure | Use Case |
+|------|------|-----------|----------|
+| **Flat** (default) | *(none)* | `debs/*.deb` + `install.sh` or `rpms/*.rpm` + `install.sh` | Quick copy + install |
+| **Mirror** | `--repo` | `pool/`, `dists/`, `Packages.gz`, `Release` (deb) or `Packages/`, `repomd.xml` (rpm) | Add as permanent apt/yum source |
 
 For Debian mode, all `.deb` files are placed in a `debs/` subdirectory. For RPM mode, all `.rpm` files are placed in a `rpms/` subdirectory. An `install.sh` script is generated that runs `dpkg -i` or `rpm -ivh` in dependency order.
 
@@ -103,19 +119,27 @@ pkgeter preset apply centos-9
 ## How It Works
 
 1. **Download package database** — fetches metadata from configured repositories (Packages.gz for Debian, repomd.xml + primary.xml.gz for RPM)
-2. **Parse dependency tree** — recursively resolves all required packages
+2. **Parse dependency tree** — recursively resolves all required packages (handles AND/OR deps, virtual packages, cycle detection)
 3. **Download package files** — downloads each package with SHA256 verification
-4. **Generate output** — creates `debs/` or `rpms/` directory with `install.sh`
+4. **Generate output** — creates `debs/` or `rpms/` directory with `install.sh`, or full mirror structure when `--repo` is used
 
 ## Distribution Presets
 
 | Preset | Backend | Included Repositories |
 |--------|---------|----------------------|
-| `debian-bookworm` | deb | main, security, updates |
-| `debian-bullseye` | deb | main, security, updates |
-| `debian-trixie`  | deb | main, security, updates |
+| `debian-bookworm` | apt (deb) | main, security, updates |
+| `debian-bullseye` | apt (deb) | main, security, updates |
+| `debian-trixie`  | apt (deb) | main, security, updates |
+| `debian-buster` | apt (deb) | main, security, updates |
+| `debian-stretch` | apt (deb) | main, security, updates |
+| `ubuntu-noble` (24.04) | apt (deb) | main, universe, security, updates |
+| `ubuntu-jammy` (22.04) | apt (deb) | main, universe, security, updates |
+| `ubuntu-focal` (20.04) | apt (deb) | main, universe, security, updates |
+| `ubuntu-bionic` (18.04) | apt (deb) | main, universe, security, updates |
 | `centos-9` | rpm | BaseOS, AppStream, EPEL |
-| `pve8` | deb | bookworm main, security, updates + pve-no-subscription |
+| `centos-7` | rpm | base, extras, updates, EPEL |
+| `pve-8` | apt (deb) | bookworm main, security, updates + pve-no-subscription |
+| `kylin-V10` | rpm | base, updates |
 
 ## License
 
