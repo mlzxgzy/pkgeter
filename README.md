@@ -25,6 +25,13 @@ Works on any platform (Linux, Windows, macOS) — useful when you need to instal
 - **Repo management** — add, list, and remove custom repositories via `pkgeter repo`
 
 ## Installation
+
+### From PyPI (recommended)
+
+```bash
+pip install pkgeter
+```
+
 ### From source
 
 ```bash

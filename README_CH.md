@@ -1,4 +1,4 @@
-# pkgeter <small>v1.2</small>
+# pkgeter <small>v1.3</small>
 
 **中文** | [English](README.md)
 
@@ -24,6 +24,13 @@
 - **源管理** — 通过 `pkgeter repo` 添加、列出、删除自定义源
 
 ## 安装
+
+### 从 PyPI 安装（推荐）
+
+```bash
+pip install pkgeter
+```
+
 ### 从源码安装
 
 ```bash
