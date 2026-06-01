@@ -1,4 +1,4 @@
-"""Distribution presets — loaded from presets.yaml, persisted in config dir."""
+"""Distribution presets — loaded from flat-format presets.yaml."""
 
 from __future__ import annotations
 
@@ -23,22 +23,8 @@ _USER_PRESETS = CONFIG_PATH.parent / "presets.yaml"
 
 
 # ---------------------------------------------------------------------------
-# Template expansion helpers
+# Mirror variant replacement
 # ---------------------------------------------------------------------------
-
-
-def _substitute_version(repos_raw: list[dict], version: str) -> list[dict]:
-    """Replace ``{version}`` placeholders in all string values of repo dicts."""
-    result = []
-    for repo in repos_raw:
-        new_repo = {}
-        for key, val in repo.items():
-            if isinstance(val, str):
-                new_repo[key] = val.replace("{version}", version)
-            else:
-                new_repo[key] = list(val) if isinstance(val, list) else val
-        result.append(new_repo)
-    return result
 
 
 def _apply_mirror_variant(repos: list[RepoConfig], url_map: dict[str, str]) -> list[RepoConfig]:
@@ -59,55 +45,8 @@ def _apply_mirror_variant(repos: list[RepoConfig], url_map: dict[str, str]) -> l
     return result
 
 
-def _expand_system(system_name: str, data: dict) -> dict[str, dict]:
-    """Expand a single system entry into flat ``name -> preset`` pairs.
-
-    Handles both template mode (``versions`` is a list) and explicit mode
-    (``versions`` is a dict with per-version repos).
-    """
-    versions = data["versions"]
-    backend = data.get("backend", "")
-    arch = data.get("arch", "")
-    presets: dict[str, dict] = {}
-
-    if isinstance(versions, list):
-        repos_template = data.get("repos", [])
-        mirrors_raw = data.get("mirrors", {})
-        for ver in versions:
-            ver_str = str(ver)
-            key = f"{system_name}-{ver_str}"
-            repos = _substitute_version(repos_template, ver_str)
-            mirrors: dict[str, dict[str, str]] = {}
-            for variant_name, url_map in mirrors_raw.items():
-                mirrors[variant_name] = {
-                    repo_name: url.replace("{version}", ver_str)
-                    for repo_name, url in url_map.items()
-                }
-            presets[key] = {
-                "backend": backend,
-                "arch": arch,
-                "repos": [RepoConfig.from_dict(r) for r in repos],
-                "mirrors": mirrors,
-            }
-    else:
-        system_mirrors = data.get("mirrors", {})
-        for ver, ver_data in versions.items():
-            ver_str = str(ver)
-            key = f"{system_name}-{ver_str}"
-            repos_raw = ver_data.get("repos", [])
-            ver_mirrors = ver_data.get("mirrors", system_mirrors)
-            presets[key] = {
-                "backend": backend,
-                "arch": arch,
-                "repos": [RepoConfig.from_dict(r) for r in repos_raw],
-                "mirrors": ver_mirrors,
-            }
-
-    return presets
-
-
 # ---------------------------------------------------------------------------
-# Lazy loading from YAML (built-in + user merged)
+# Lazy loading from flat YAML (built-in + user merged)
 # ---------------------------------------------------------------------------
 
 _PRESETS_CACHE: dict[str, Any] | None = None
@@ -115,11 +54,11 @@ _SYSTEMS_CACHE: dict[str, dict] | None = None
 
 
 def _load_presets() -> dict[str, Any]:
-    """Load presets from hierarchical YAML, expanding into a flat mapping.
+    """Load presets from flat-format YAML files into a flat :attr:`name → data` mapping.
 
-    Built-in presets come from ``pkgeter/data/presets.yaml``.
+    Built-in presets live in ``pkgeter/data/presets.yaml``.
     User presets live in ``~/.config/pkgeter/presets.yaml`` and override
-    built-in entries of the same system name.
+    built-in entries of the same preset key.
     """
     global _PRESETS_CACHE, _SYSTEMS_CACHE
     if _PRESETS_CACHE is not None:
@@ -128,7 +67,9 @@ def _load_presets() -> dict[str, Any]:
     # 1. Read built-in presets
     builtin: dict[str, Any] = {}
     if _BUILTIN_PRESETS.exists():
-        builtin = yaml.safe_load(_BUILTIN_PRESETS.read_text(encoding="utf-8")) or {}
+        builtin_raw = yaml.safe_load(_BUILTIN_PRESETS.read_text(encoding="utf-8")) or {}
+        builtin = {k: v for k, v in builtin_raw.items()
+                   if isinstance(v, dict)}
 
     # 2. Read (or seed) user presets
     def _seed_user_presets() -> None:
@@ -143,57 +84,55 @@ def _load_presets() -> dict[str, Any]:
 
     if not _USER_PRESETS.exists():
         _seed_user_presets()
-        user_raw: dict[str, Any] = {}
+        user_raw = {}
     else:
-        user_raw = yaml.safe_load(_USER_PRESETS.read_text(encoding="utf-8")) or {}
-        # Detect old flat-format file (keys like "debian-bookworm" without "versions")
-        has_new_format = any(
-            isinstance(v, dict) and "versions" in v for v in user_raw.values()
+        user_file = _USER_PRESETS.read_text(encoding="utf-8")
+        user_candidate = yaml.safe_load(user_file) or {}
+
+        # Detect old hierarchical format (keys with "versions" field)
+        is_old_hierarchical = any(
+            isinstance(v, dict) and "versions" in v
+            for v in user_candidate.values()
         )
-        if user_raw and not has_new_format:
+        if user_candidate and is_old_hierarchical:
             print(
-                "Note: updating presets.yaml to new hierarchical format",
+                "Note: presets.yaml uses old hierarchical format — resetting to flat format",
                 file=sys.stderr,
             )
             _seed_user_presets()
             user_raw = {}
+        else:
+            user_raw = {k: v for k, v in user_candidate.items()
+                        if isinstance(v, dict)}
 
-    # 3. Merge: user overrides built-in (keyed by system name)
+    # 3. Merge: user overrides built-in by exact preset key
     merged = {**builtin, **user_raw}
 
-    # 4. Expand hierarchical entries into flat preset mapping
-    presets: dict[str, Any] = {}
+    # 4. Build systems index for grouped listing
     systems: dict[str, dict] = {}
 
-    for system_name, data in merged.items():
-        if not isinstance(data, dict) or "versions" not in data:
-            continue
-        expanded = _expand_system(system_name, data)
-        presets.update(expanded)
+    for key, data in merged.items():
+        system_name = data.get("system", key.split("-", 1)[0] if "-" in key else key)
 
-        # Build system info for list_presets()
-        versions_raw = data["versions"]
-        if isinstance(versions_raw, list):
-            versions_list = [str(v) for v in versions_raw]
-            variants = sorted(data.get("mirrors", {}).keys())
-        else:
-            versions_list = [str(v) for v in versions_raw.keys()]
-            all_variants: set[str] = set()
-            for ver_data in versions_raw.values():
-                if isinstance(ver_data, dict):
-                    all_variants.update(ver_data.get("mirrors", {}).keys())
-            if not all_variants:
-                all_variants.update(data.get("mirrors", {}).keys())
-            variants = sorted(all_variants)
+        if system_name not in systems:
+            systems[system_name] = {"versions": [], "variants": []}
 
-        systems[system_name] = {
-            "versions": versions_list,
-            "variants": variants,
-        }
+        # Extract version (part after first hyphen)
+        if "-" in key:
+            ver = key.split("-", 1)[1]
+            if ver not in systems[system_name]["versions"]:
+                systems[system_name]["versions"].append(ver)
 
-    _PRESETS_CACHE = presets
+        # Collect mirror variant names
+        for mirror in data.get("mirrors", []):
+            if isinstance(mirror, dict):
+                vname = mirror.get("name", "")
+                if vname and vname not in systems[system_name]["variants"]:
+                    systems[system_name]["variants"].append(vname)
+
+    _PRESETS_CACHE = merged
     _SYSTEMS_CACHE = systems
-    return presets
+    return merged
 
 
 def reload_presets() -> None:
@@ -267,14 +206,19 @@ def get_preset(name: str, mirror_variant: str = "default") -> dict | None:
     preset = {
         "backend": raw["backend"],
         "arch": raw.get("arch", ""),
-        "repos": list(raw.get("repos", [])),
+        "repos": [RepoConfig.from_dict(r) for r in raw.get("repos", [])],
     }
 
     if variant != "default":
-        mirrors = raw.get("mirrors", {})
-        if variant in mirrors:
-            preset["repos"] = _apply_mirror_variant(preset["repos"], mirrors[variant])
-        else:
+        mirrors = raw.get("mirrors", [])
+        found = False
+        for m in mirrors:
+            if isinstance(m, dict) and m.get("name") == variant:
+                url_map = m.get("urls", {})
+                preset["repos"] = _apply_mirror_variant(preset["repos"], url_map)
+                found = True
+                break
+        if not found:
             print(
                 f"Warning: mirror variant '{variant}' not found "
                 f"in preset '{base_name}', using default",

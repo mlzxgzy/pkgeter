@@ -11,9 +11,7 @@ import pytest
 from pkgeter.models import RepoConfig
 from pkgeter.preset import (
     _apply_mirror_variant,
-    _expand_system,
     _load_presets,
-    _substitute_version,
     all_preset_names,
     complete_preset_name,
     get_preset,
@@ -29,46 +27,76 @@ from pkgeter.preset import (
 # ---------------------------------------------------------------------------
 
 SAMPLE_PRESETS_YAML = """\
-debian:
+debian-bookworm:
+  system: debian
   backend: apt
   arch: amd64
-  versions: [bookworm, bullseye]
   repos:
     - name: main
       type: deb
       url: https://deb.debian.org/debian
-      release: "{version}"
+      release: bookworm
       components: [main]
     - name: security
       type: deb
       url: https://security.debian.org/debian-security
-      release: "{version}-security"
+      release: bookworm-security
       components: [main]
     - name: updates
       type: deb
       url: https://deb.debian.org/debian
-      release: "{version}-updates"
+      release: bookworm-updates
       components: [main]
   mirrors:
-    cn:
-      main: https://mirrors.ustc.edu.cn/debian
-      security: https://mirrors.ustc.edu.cn/debian-security
-      updates: https://mirrors.ustc.edu.cn/debian
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/debian
+        security: https://mirrors.ustc.edu.cn/debian-security
+        updates: https://mirrors.ustc.edu.cn/debian
 
-centos:
+debian-bullseye:
+  system: debian
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bullseye
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: bullseye-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bullseye-updates
+      components: [main]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/debian
+        security: https://mirrors.ustc.edu.cn/debian-security
+        updates: https://mirrors.ustc.edu.cn/debian
+
+centos-9:
+  system: centos
   backend: rpm
   arch: x86_64
-  versions: ["9"]
   repos:
     - name: baseos
       type: rpm
-      url: https://mirror.stream.centos.org/{version}-stream/BaseOS/x86_64/os
+      url: https://mirror.stream.centos.org/9-stream/BaseOS/x86_64/os
     - name: appstream
       type: rpm
-      url: https://mirror.stream.centos.org/{version}-stream/AppStream/x86_64/os
+      url: https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os
     - name: epel
       type: rpm
-      url: https://dl.fedoraproject.org/pub/epel/{version}/Everything/x86_64
+      url: https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64
 """
 
 
@@ -353,133 +381,6 @@ class TestRunPreset:
             captured = capsys.readouterr()
             assert "Error:" in captured.err
             assert "foobar" in captured.err
-
-
-# ---------------------------------------------------------------------------
-# _substitute_version
-# ---------------------------------------------------------------------------
-
-
-class TestSubstituteVersion:
-    def test_replaces_version_in_url(self):
-        repos = [{"name": "main", "url": "https://example.com/{version}/repo", "release": "{version}"}]
-        result = _substitute_version(repos, "bookworm")
-        assert result[0]["url"] == "https://example.com/bookworm/repo"
-        assert result[0]["release"] == "bookworm"
-
-    def test_preserves_non_string_values(self):
-        repos = [{"name": "main", "components": ["main", "contrib"], "url": "https://x/{version}"}]
-        result = _substitute_version(repos, "trixie")
-        assert result[0]["components"] == ["main", "contrib"]
-        assert result[0]["url"] == "https://x/trixie"
-
-    def test_does_not_mutate_input(self):
-        repos = [{"name": "main", "url": "https://x/{version}"}]
-        _substitute_version(repos, "bookworm")
-        assert repos[0]["url"] == "https://x/{version}"
-
-
-# ---------------------------------------------------------------------------
-# _expand_system
-# ---------------------------------------------------------------------------
-
-
-class TestExpandSystem:
-    def test_template_mode_expands_versions(self):
-        data = {
-            "backend": "apt",
-            "arch": "amd64",
-            "versions": ["bookworm", "bullseye"],
-            "repos": [
-                {"name": "main", "type": "deb", "url": "https://deb.debian.org/debian",
-                 "release": "{version}", "components": ["main"]},
-            ],
-            "mirrors": {
-                "cn": {"main": "https://mirrors.ustc.edu.cn/debian"},
-            },
-        }
-        result = _expand_system("debian", data)
-        assert "debian-bookworm" in result
-        assert "debian-bullseye" in result
-        bw = result["debian-bookworm"]
-        assert bw["backend"] == "apt"
-        assert bw["repos"][0].release == "bookworm"
-        assert bw["repos"][0].url == "https://deb.debian.org/debian"
-        assert bw["mirrors"] == {"cn": {"main": "https://mirrors.ustc.edu.cn/debian"}}
-
-    def test_template_mode_substitutes_mirror_urls(self):
-        data = {
-            "backend": "rpm",
-            "arch": "x86_64",
-            "versions": ["9"],
-            "repos": [
-                {"name": "baseos", "type": "rpm",
-                 "url": "https://mirror.centos.org/{version}-stream/BaseOS/x86_64/os"},
-            ],
-            "mirrors": {
-                "cn": {"baseos": "https://mirrors.ustc.edu.cn/centos/{version}-stream/BaseOS/x86_64/os"},
-            },
-        }
-        result = _expand_system("centos", data)
-        assert result["centos-9"]["mirrors"]["cn"]["baseos"] == \
-            "https://mirrors.ustc.edu.cn/centos/9-stream/BaseOS/x86_64/os"
-
-    def test_explicit_mode_reads_version_repos(self):
-        data = {
-            "backend": "apt",
-            "arch": "amd64",
-            "versions": {
-                "8": {
-                    "repos": [
-                        {"name": "main", "type": "deb", "url": "https://deb.debian.org/debian",
-                         "release": "bookworm", "components": ["main"]},
-                        {"name": "pve", "type": "deb", "url": "https://download.proxmox.com/debian/pve",
-                         "release": "bookworm", "components": ["pve-no-subscription"]},
-                    ],
-                    "mirrors": {
-                        "cn": {
-                            "main": "https://mirrors.ustc.edu.cn/debian",
-                            "pve": "https://mirrors.ustc.edu.cn/proxmox/debian/pve",
-                        },
-                    },
-                },
-            },
-        }
-        result = _expand_system("pve", data)
-        assert "pve-8" in result
-        p = result["pve-8"]
-        assert len(p["repos"]) == 2
-        assert p["repos"][1].name == "pve"
-        assert p["mirrors"]["cn"]["pve"] == "https://mirrors.ustc.edu.cn/proxmox/debian/pve"
-
-    def test_explicit_mode_inherits_system_mirrors(self):
-        data = {
-            "backend": "apt",
-            "arch": "amd64",
-            "mirrors": {"cn": {"main": "https://cn.example.com"}},
-            "versions": {
-                "1": {
-                    "repos": [{"name": "main", "type": "deb", "url": "https://example.com",
-                               "release": "v1", "components": ["main"]}],
-                },
-            },
-        }
-        result = _expand_system("test", data)
-        assert result["test-1"]["mirrors"] == {"cn": {"main": "https://cn.example.com"}}
-
-    def test_explicit_mode_no_mirrors(self):
-        data = {
-            "backend": "rpm",
-            "arch": "x86_64",
-            "versions": {
-                "V10": {
-                    "repos": [{"name": "base", "type": "rpm",
-                               "url": "https://update.cs2c.com.cn/base/x86_64"}],
-                },
-            },
-        }
-        result = _expand_system("kylin", data)
-        assert result["kylin-V10"]["mirrors"] == {}
 
 
 # ---------------------------------------------------------------------------
