@@ -142,6 +142,200 @@ pve-8:
         updates: https://mirrors.ustc.edu.cn/debian
         pve-no-subscription: https://mirrors.ustc.edu.cn/proxmox/debian/pve
 
+ubuntu-noble:
+  system: ubuntu
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: noble
+      components: [main, universe]
+    - name: security
+      type: deb
+      url: http://security.ubuntu.com/ubuntu
+      release: noble-security
+      components: [main, universe]
+    - name: updates
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: noble-updates
+      components: [main, universe]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/ubuntu
+        security: https://mirrors.ustc.edu.cn/ubuntu
+        updates: https://mirrors.ustc.edu.cn/ubuntu
+
+ubuntu-jammy:
+  system: ubuntu
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: jammy
+      components: [main, universe]
+    - name: security
+      type: deb
+      url: http://security.ubuntu.com/ubuntu
+      release: jammy-security
+      components: [main, universe]
+    - name: updates
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: jammy-updates
+      components: [main, universe]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/ubuntu
+        security: https://mirrors.ustc.edu.cn/ubuntu
+        updates: https://mirrors.ustc.edu.cn/ubuntu
+
+ubuntu-focal:
+  system: ubuntu
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: focal
+      components: [main, universe]
+    - name: security
+      type: deb
+      url: http://security.ubuntu.com/ubuntu
+      release: focal-security
+      components: [main, universe]
+    - name: updates
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: focal-updates
+      components: [main, universe]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/ubuntu
+        security: https://mirrors.ustc.edu.cn/ubuntu
+        updates: https://mirrors.ustc.edu.cn/ubuntu
+
+ubuntu-bionic:
+  system: ubuntu
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: bionic
+      components: [main, universe]
+    - name: security
+      type: deb
+      url: http://security.ubuntu.com/ubuntu
+      release: bionic-security
+      components: [main, universe]
+    - name: updates
+      type: deb
+      url: http://archive.ubuntu.com/ubuntu
+      release: bionic-updates
+      components: [main, universe]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/ubuntu
+        security: https://mirrors.ustc.edu.cn/ubuntu
+        updates: https://mirrors.ustc.edu.cn/ubuntu
+
+centos-7:
+  system: centos
+  backend: rpm
+  arch: x86_64
+  repos:
+    - name: base
+      type: rpm
+      url: http://mirror.centos.org/centos/7/os/x86_64
+    - name: extras
+      type: rpm
+      url: http://mirror.centos.org/centos/7/extras/x86_64
+    - name: updates
+      type: rpm
+      url: http://mirror.centos.org/centos/7/updates/x86_64
+    - name: epel
+      type: rpm
+      url: https://dl.fedoraproject.org/pub/epel/7/x86_64
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        base: https://mirrors.ustc.edu.cn/centos/7/os/x86_64
+        extras: https://mirrors.ustc.edu.cn/centos/7/extras/x86_64
+        updates: https://mirrors.ustc.edu.cn/centos/7/updates/x86_64
+        epel: https://mirrors.ustc.edu.cn/epel/7/x86_64
+
+debian-buster:
+  system: debian
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: buster
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: buster-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: buster-updates
+      components: [main]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/debian
+        security: https://mirrors.ustc.edu.cn/debian-security
+        updates: https://mirrors.ustc.edu.cn/debian
+
+debian-stretch:
+  system: debian
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: stretch
+      components: [main]
+    - name: security
+      type: deb
+      url: https://security.debian.org/debian-security
+      release: stretch-security
+      components: [main]
+    - name: updates
+      type: deb
+      url: https://deb.debian.org/debian
+      release: stretch-updates
+      components: [main]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/debian
+        security: https://mirrors.ustc.edu.cn/debian-security
+        updates: https://mirrors.ustc.edu.cn/debian
+
 kylin-V10:
   system: kylin
   backend: rpm
