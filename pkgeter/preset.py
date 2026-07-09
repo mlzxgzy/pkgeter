@@ -19,7 +19,7 @@ PRESET_ACTIONS = ["list", "apply"]
 
 _PACKAGE_DIR = Path(__file__).parent
 _BUILTIN_PRESETS = _PACKAGE_DIR / "data" / "presets.yaml"
-_USER_PRESETS = CONFIG_PATH.parent / "presets.yaml"
+_CUSTOM_PRESETS = CONFIG_PATH.parent / "custom-presets.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -53,12 +53,58 @@ _PRESETS_CACHE: dict[str, Any] | None = None
 _SYSTEMS_CACHE: dict[str, dict] | None = None
 
 
+def _merge_preset_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge one preset override into a built-in preset.
+
+    Scalar fields are replaced. Repos and mirrors are merged by ``name`` so user
+    presets can add or override individual entries without copying the whole
+    built-in preset definition.
+    """
+    merged = dict(base)
+
+    for key in ("system", "backend", "arch"):
+        if key in override:
+            merged[key] = override[key]
+
+    if "repos" in override:
+        base_repos = {
+            item.get("name", ""): item
+            for item in base.get("repos", [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        for item in override.get("repos", []):
+            if isinstance(item, dict) and item.get("name"):
+                base_repos[item["name"]] = item
+        merged["repos"] = list(base_repos.values())
+
+    if "mirrors" in override:
+        base_mirrors = {
+            item.get("name", ""): item
+            for item in base.get("mirrors", [])
+            if isinstance(item, dict) and item.get("name")
+        }
+        for item in override.get("mirrors", []):
+            if not isinstance(item, dict) or not item.get("name"):
+                continue
+            name = item["name"]
+            existing = base_mirrors.get(name, {}) if isinstance(base_mirrors.get(name), dict) else {}
+            merged_mirror = dict(existing)
+            merged_mirror.update({k: v for k, v in item.items() if k != "urls"})
+            urls = dict(existing.get("urls", {})) if isinstance(existing.get("urls"), dict) else {}
+            urls.update(item.get("urls", {}))
+            merged_mirror["urls"] = urls
+            base_mirrors[name] = merged_mirror
+        merged["mirrors"] = list(base_mirrors.values())
+
+    return merged
+
+
 def _load_presets() -> dict[str, Any]:
     """Load presets from flat-format YAML files into a flat :attr:`name → data` mapping.
 
     Built-in presets live in ``pkgeter/data/presets.yaml``.
-    User presets live in ``~/.config/pkgeter/presets.yaml`` and override
-    built-in entries of the same preset key.
+    Custom presets live in ``~/.config/pkgeter/custom-presets.yaml`` and
+    extend or override built-in entries of the same preset key.
     """
     global _PRESETS_CACHE, _SYSTEMS_CACHE
     if _PRESETS_CACHE is not None:
@@ -71,42 +117,22 @@ def _load_presets() -> dict[str, Any]:
         builtin = {k: v for k, v in builtin_raw.items()
                    if isinstance(v, dict)}
 
-    # 2. Read (or seed) user presets
-    def _seed_user_presets() -> None:
-        """Copy built-in presets to user config dir (best-effort)."""
-        try:
-            _USER_PRESETS.parent.mkdir(parents=True, exist_ok=True)
-            if _BUILTIN_PRESETS.exists():
-                import shutil
-                shutil.copy2(_BUILTIN_PRESETS, _USER_PRESETS)
-        except OSError:
-            pass
-
-    if not _USER_PRESETS.exists():
-        _seed_user_presets()
+    # 2. Read optional custom presets
+    if not _CUSTOM_PRESETS.exists():
         user_raw = {}
     else:
-        user_file = _USER_PRESETS.read_text(encoding="utf-8")
+        user_file = _CUSTOM_PRESETS.read_text(encoding="utf-8")
         user_candidate = yaml.safe_load(user_file) or {}
+        user_raw = {k: v for k, v in user_candidate.items()
+                    if isinstance(v, dict)}
 
-        # Detect old hierarchical format (keys with "versions" field)
-        is_old_hierarchical = any(
-            isinstance(v, dict) and "versions" in v
-            for v in user_candidate.values()
-        )
-        if user_candidate and is_old_hierarchical:
-            print(
-                "Note: presets.yaml uses old hierarchical format — resetting to flat format",
-                file=sys.stderr,
-            )
-            _seed_user_presets()
-            user_raw = {}
+    # 3. Merge: user presets extend built-ins by preset key
+    merged = dict(builtin)
+    for key, value in user_raw.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _merge_preset_dicts(merged[key], value)
         else:
-            user_raw = {k: v for k, v in user_candidate.items()
-                        if isinstance(v, dict)}
-
-    # 3. Merge: user overrides built-in by exact preset key
-    merged = {**builtin, **user_raw}
+            merged[key] = value
 
     # 4. Build systems index for grouped listing
     systems: dict[str, dict] = {}

@@ -123,6 +123,25 @@ CLI flags override config file values. Apply a preset to quickly populate the co
 pkgeter preset apply centos-9
 ```
 
+To add or override repositories in a built-in preset, create `~/.config/pkgeter/custom-presets.yaml`. This file is optional and merged onto built-in presets by preset name, repo name, and mirror name.
+
+```yaml
+pve-8:
+  repos:
+    - name: ceph-squid
+      type: deb
+      url: https://download.proxmox.com/debian/ceph-squid
+      release: bookworm
+      components: [no-subscription]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        ceph-squid: https://mirrors.ustc.edu.cn/proxmox/debian/ceph-squid
+```
+
+After editing `custom-presets.yaml`, re-run `pkgeter preset apply <preset>` to persist the merged repo list into `config.yaml`.
+
 ## How It Works
 
 1. **Download package database** — fetches metadata from configured repositories (Packages.gz for Debian, repomd.xml + primary.xml.gz for RPM)

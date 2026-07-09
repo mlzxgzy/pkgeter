@@ -119,6 +119,25 @@ repos:
 pkgeter preset apply centos-9
 ```
 
+如需给内置预设追加或覆盖仓库，请创建 `~/.config/pkgeter/custom-presets.yaml`。此文件可选，按预设名、repo 名、mirror 名增量合并到内置预设上。
+
+```yaml
+pve-8:
+  repos:
+    - name: ceph-squid
+      type: deb
+      url: https://download.proxmox.com/debian/ceph-squid
+      release: bookworm
+      components: [no-subscription]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        ceph-squid: https://mirrors.ustc.edu.cn/proxmox/debian/ceph-squid
+```
+
+修改 `custom-presets.yaml` 后，需要重新执行 `pkgeter preset apply <preset>`，把合并后的仓库列表写回 `config.yaml`。
+
 ## 工作原理
 
 1. **下载包数据库** — 从配置的源获取元数据（Debian 用 Packages.gz，RPM 用 repomd.xml + primary.xml.gz）

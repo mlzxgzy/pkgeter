@@ -99,16 +99,33 @@ centos-9:
       url: https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64
 """
 
+CUSTOM_PRESETS_YAML = """\
+pve-8:
+  repos:
+    - name: ceph-squid
+      type: deb
+      url: https://download.proxmox.com/debian/ceph-squid
+      release: bookworm
+      components: [no-subscription]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        ceph-squid: https://mirrors.ustc.edu.cn/proxmox/debian/ceph-squid
+"""
+
 
 @pytest.fixture
 def preset_file(tmp_path: Path):
-    """Fixture: write sample presets to a temp file and mock the path."""
-    f = tmp_path / "presets.yaml"
-    f.write_text(SAMPLE_PRESETS_YAML, encoding="utf-8")
+    """Fixture: write sample presets to temp files and mock preset paths."""
+    builtin = tmp_path / "builtin-presets.yaml"
+    builtin.write_text(SAMPLE_PRESETS_YAML, encoding="utf-8")
+    custom = tmp_path / "custom-presets.yaml"
 
-    with patch("pkgeter.preset._USER_PRESETS", f):
+    with patch("pkgeter.preset._BUILTIN_PRESETS", builtin), patch("pkgeter.preset._CUSTOM_PRESETS", custom):
         reload_presets()  # clear cache so next load reads from temp file
-        yield
+        yield builtin, custom
+        reload_presets()
 
 
 # ---------------------------------------------------------------------------
@@ -325,6 +342,87 @@ class TestGetPreset:
         preset = get_preset("debian-bookworm")
         assert "deb.debian.org" in preset["repos"][0].url
 
+    def test_missing_custom_preset_file_uses_builtin_only(self, preset_file):
+        builtin, custom = preset_file
+        builtin.write_text(SAMPLE_PRESETS_YAML, encoding="utf-8")
+        if custom.exists():
+            custom.unlink()
+        reload_presets()
+
+        preset = get_preset("debian-bookworm")
+
+        assert preset is not None
+        assert preset["backend"] == "apt"
+
+    def test_user_override_merges_missing_fields_from_builtin(self, preset_file):
+        builtin, user = preset_file
+        builtin.write_text(
+            SAMPLE_PRESETS_YAML
+            + """
+
+pve-8:
+  system: pve
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bookworm
+      components: [main]
+    - name: pve-no-subscription
+      type: deb
+      url: https://download.proxmox.com/debian/pve
+      release: bookworm
+      components: [pve-no-subscription]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/debian
+        pve-no-subscription: https://mirrors.ustc.edu.cn/proxmox/debian/pve
+""",
+            encoding="utf-8",
+        )
+        user.write_text(CUSTOM_PRESETS_YAML, encoding="utf-8")
+        reload_presets()
+
+        preset = get_preset("pve-8@cn")
+
+        assert preset is not None
+        assert preset["backend"] == "apt"
+        assert preset["arch"] == "amd64"
+        repos = {repo.name: repo for repo in preset["repos"]}
+        assert set(repos) == {"main", "pve-no-subscription", "ceph-squid"}
+        assert repos["main"].url == "https://mirrors.ustc.edu.cn/debian"
+        assert repos["pve-no-subscription"].url == "https://mirrors.ustc.edu.cn/proxmox/debian/pve"
+        assert repos["ceph-squid"].url == "https://mirrors.ustc.edu.cn/proxmox/debian/ceph-squid"
+        assert repos["ceph-squid"].components == ["no-subscription"]
+
+    def test_legacy_presets_yaml_is_ignored(self, tmp_path: Path):
+        builtin = tmp_path / "builtin-presets.yaml"
+        builtin.write_text(SAMPLE_PRESETS_YAML, encoding="utf-8")
+        custom = tmp_path / "custom-presets.yaml"
+        legacy = tmp_path / "presets.yaml"
+        legacy.write_text(
+            """
+pve-8:
+  repos:
+    - name: ceph-squid
+      type: deb
+      url: https://legacy.example.invalid/debian/ceph-squid
+      release: bookworm
+      components: [no-subscription]
+""",
+            encoding="utf-8",
+        )
+
+        with patch("pkgeter.preset._BUILTIN_PRESETS", builtin), patch("pkgeter.preset._CUSTOM_PRESETS", custom):
+            reload_presets()
+            preset = get_preset("pve-8")
+
+        assert preset is None
+
 
 # ---------------------------------------------------------------------------
 # run_preset
@@ -369,6 +467,43 @@ class TestRunPreset:
             instance.set_backend.assert_called_once_with("rpm")
             repos_arg = instance.set_repos.call_args[0][0]
             assert repos_arg[0]["type"] == "rpm"
+
+    def test_apply_merged_custom_preset(self, preset_file, capsys: pytest.CaptureFixture[str]):
+        builtin, custom = preset_file
+        builtin.write_text(
+            SAMPLE_PRESETS_YAML
+            + """
+
+pve-8:
+  system: pve
+  backend: apt
+  arch: amd64
+  repos:
+    - name: main
+      type: deb
+      url: https://deb.debian.org/debian
+      release: bookworm
+      components: [main]
+  mirrors:
+    - name: cn
+      provider: ustc
+      urls:
+        main: https://mirrors.ustc.edu.cn/debian
+""",
+            encoding="utf-8",
+        )
+        custom.write_text(CUSTOM_PRESETS_YAML, encoding="utf-8")
+        reload_presets()
+
+        with patch("pkgeter.preset.Config") as MockConfig:
+            instance = MockConfig.return_value
+            run_preset(["apply", "pve-8@cn"])
+
+            repos_arg = instance.set_repos.call_args[0][0]
+            names = {repo["name"] for repo in repos_arg}
+            assert names == {"main", "ceph-squid"}
+            instance.set_mirror_variant.assert_called_once_with("cn")
+            instance.set_preset_name.assert_called_once_with("pve-8@cn")
 
     def test_apply_unknown_preset(self, preset_file):
         with patch.object(sys, "exit") as mock_exit:
