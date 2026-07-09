@@ -1,4 +1,4 @@
-# pkgeter <small>v1.3.3</small>
+# pkgeter <small>v1.3.4</small>
 
 **English** | [中文](README_CH.md)
 
@@ -7,6 +7,8 @@
 Works on any platform (Linux, Windows, macOS) — useful when you need to install packages on an air-gapped or offline machine.
 
 ## Features
+
+> v1.3.4: fixes Debian multiarch dependency resolution such as `python3:any`, resolving failures like `openvswitch-switch` on `pve-8`.
 
 - **Dual backend** — supports Debian (`dpkg`) and RPM (`rpm`/`dnf`/`yum`) based distributions
 - **Distribution presets** — 14+ ready-to-use presets: `--distro debian-bookworm`, `--distro centos-7`, `--distro ubuntu-noble`

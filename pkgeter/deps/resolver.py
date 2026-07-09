@@ -91,10 +91,14 @@ class Resolver:
                         resolved_one = True
                         break
 
-                    # Sonames and file paths are "soft" deps: resolve if
-                    # possible (via provides), but tolerate missing ones
-                    # (assumed provided by the base system).
-                    is_soft = dep.name.startswith("/") or ".so" in dep.name
+                    # Sonames, file paths, and Debian multiarch markers like
+                    # python3:any are "soft" deps: resolve if possible, but
+                    # tolerate missing ones as system-provided/runtime-level.
+                    is_soft = (
+                        dep.name.startswith("/")
+                        or ".so" in dep.name
+                        or ":any" in dep.name
+                    )
                     if is_soft:
                         has_soft_dep = True
 

@@ -1,4 +1,4 @@
-# pkgeter <small>v1.3.3</small>
+# pkgeter <small>v1.3.4</small>
 
 **中文** | [English](README.md)
 
@@ -7,6 +7,8 @@
 跨平台支持（Linux、Windows、macOS）—— 当需要在离线机器上安装包时非常有用。
 
 ## 特性
+
+> v1.3.4：修复 Debian 多架构依赖（如 `python3:any`）解析问题，解决 `pve-8` 上 `openvswitch-switch` 等包的下载失败。
 
 - **双后端** — 支持 Debian（`dpkg`）和 RPM（`rpm`/`dnf`/`yum`）系发行版
 - **发行版预设** — 14+ 个开箱即用预设：`--distro debian-bookworm`、`--distro centos-7`、`--distro ubuntu-noble`
