@@ -1,4 +1,4 @@
-# pkgeter <small>v1.3.4</small>
+# pkgeter <small>v1.3.5</small>
 
 **中文** | [English](README.md)
 
@@ -8,7 +8,7 @@
 
 ## 特性
 
-> v1.3.4：修复 Debian 多架构依赖（如 `python3:any`）解析问题，解决 `pve-8` 上 `openvswitch-switch` 等包的下载失败。
+> v1.3.5：同步 REPL help 与当前 CLI 用法，并补充 `--repo` 输出说明。v1.3.4 修复 Debian 多架构依赖（如 `python3:any`）解析问题，解决 `pve-8` 上 `openvswitch-switch` 等包的下载失败。
 
 - **双后端** — 支持 Debian（`dpkg`）和 RPM（`rpm`/`dnf`/`yum`）系发行版
 - **发行版预设** — 14+ 个开箱即用预设：`--distro debian-bookworm`、`--distro centos-7`、`--distro ubuntu-noble`
@@ -95,6 +95,53 @@ Debian 模式下所有 `.deb` 文件输出到 `debs/` 子目录，RPM 模式下�
 ```bash
 # 将 debs/ 或 rpms/ 目录和 install.sh 复制到目标机器，然后：
 sudo bash install.sh
+```
+
+### 将 `--repo` 作为临时本地源使用
+
+先生成带仓库结构输出：
+
+```bash
+pkgeter get -p nginx --distro debian-bookworm --repo -o ./offline-repo
+pkgeter get -p nginx --distro centos-9 --repo -o ./offline-repo
+```
+
+把输出目录复制到目标机器后，再让包管理器指向该目录。
+
+**Debian / apt**
+
+```bash
+sudo mkdir -p /opt/offline-repo
+sudo cp -r offline-repo/* /opt/offline-repo/
+echo "deb [trusted=yes] file:/opt/offline-repo ./" | sudo tee /etc/apt/sources.list.d/offline.list
+sudo apt update
+sudo apt install nginx
+```
+
+**RPM / dnf**
+
+```bash
+sudo mkdir -p /opt/offline-repo
+sudo cp -r offline-repo/* /opt/offline-repo/
+sudo tee /etc/yum.repos.d/offline.repo <<'EOF'
+[offline]
+name=Offline Repo
+baseurl=file:///opt/offline-repo
+enabled=1
+gpgcheck=0
+EOF
+sudo dnf makecache
+sudo dnf install nginx
+```
+
+用完后删除临时源配置：
+
+```bash
+# Debian / apt
+sudo rm -f /etc/apt/sources.list.d/offline.list
+
+# RPM / dnf
+sudo rm -f /etc/yum.repos.d/offline.repo
 ```
 
 ## 配置

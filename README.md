@@ -1,4 +1,4 @@
-# pkgeter <small>v1.3.4</small>
+# pkgeter <small>v1.3.5</small>
 
 **English** | [中文](README_CH.md)
 
@@ -8,7 +8,7 @@ Works on any platform (Linux, Windows, macOS) — useful when you need to instal
 
 ## Features
 
-> v1.3.4: fixes Debian multiarch dependency resolution such as `python3:any`, resolving failures like `openvswitch-switch` on `pve-8`.
+> v1.3.5: syncs REPL help with current CLI usage and documents `--repo` output more clearly. v1.3.4 fixed Debian multiarch dependency resolution such as `python3:any`, resolving failures like `openvswitch-switch` on `pve-8`.
 
 - **Dual backend** — supports Debian (`dpkg`) and RPM (`rpm`/`dnf`/`yum`) based distributions
 - **Distribution presets** — 14+ ready-to-use presets: `--distro debian-bookworm`, `--distro centos-7`, `--distro ubuntu-noble`
@@ -99,6 +99,53 @@ sudo bash install.sh
 
 # RPM: copy the rpms/ directory and install.sh to the target machine, then:
 sudo bash install.sh
+```
+
+### Use `--repo` as a temporary local repository
+
+Generate structured repository output:
+
+```bash
+pkgeter get -p nginx --distro debian-bookworm --repo -o ./offline-repo
+pkgeter get -p nginx --distro centos-9 --repo -o ./offline-repo
+```
+
+On target machine, point package manager at copied directory.
+
+**Debian / apt**
+
+```bash
+sudo mkdir -p /opt/offline-repo
+sudo cp -r offline-repo/* /opt/offline-repo/
+echo "deb [trusted=yes] file:/opt/offline-repo ./" | sudo tee /etc/apt/sources.list.d/offline.list
+sudo apt update
+sudo apt install nginx
+```
+
+**RPM / dnf**
+
+```bash
+sudo mkdir -p /opt/offline-repo
+sudo cp -r offline-repo/* /opt/offline-repo/
+sudo tee /etc/yum.repos.d/offline.repo <<'EOF'
+[offline]
+name=Offline Repo
+baseurl=file:///opt/offline-repo
+enabled=1
+gpgcheck=0
+EOF
+sudo dnf makecache
+sudo dnf install nginx
+```
+
+Remove temporary source after use:
+
+```bash
+# Debian / apt
+sudo rm -f /etc/apt/sources.list.d/offline.list
+
+# RPM / dnf
+sudo rm -f /etc/yum.repos.d/offline.repo
 ```
 
 ## Configuration
