@@ -151,6 +151,11 @@ pve-8:
       url: https://download.proxmox.com/debian/pve
       release: bookworm
       components: [pve-no-subscription]
+    - name: ceph-squid
+      type: deb
+      url: https://enterprise.proxmox.com/debian/ceph-squid
+      release: bookworm
+      components: [no-subscription]
   mirrors:
     - name: cn
       provider: ustc
@@ -159,6 +164,7 @@ pve-8:
         security: https://mirrors.ustc.edu.cn/debian-security
         updates: https://mirrors.ustc.edu.cn/debian
         pve-no-subscription: https://mirrors.ustc.edu.cn/proxmox/debian/pve
+        ceph-squid: https://mirrors.ustc.edu.cn/proxmox/debian/ceph-squid
 
 pve-9:
   system: pve
