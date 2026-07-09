@@ -1,4 +1,4 @@
-# pkgeter <small>v1.3.2</small>
+# pkgeter <small>v1.3.3</small>
 
 **English** | [中文](README_CH.md)
 
@@ -164,7 +164,7 @@ After editing `custom-presets.yaml`, re-run `pkgeter preset apply <preset>` to p
 | `ubuntu-bionic` (18.04) | apt (deb) | main, universe, security, updates |
 | `centos-9` | rpm | BaseOS, AppStream, EPEL |
 | `centos-7` | rpm | base, extras, updates, EPEL |
-| `pve-8` | apt (deb) | bookworm main, security, updates + pve-no-subscription |
+| `pve-8` | apt (deb) | bookworm main, security, updates + pve-no-subscription + ceph-squid |
 | `kylin-V10` | rpm | base, updates |
 
 ## License

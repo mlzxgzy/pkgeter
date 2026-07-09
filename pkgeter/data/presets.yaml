@@ -153,7 +153,7 @@ pve-8:
       components: [pve-no-subscription]
     - name: ceph-squid
       type: deb
-      url: https://enterprise.proxmox.com/debian/ceph-squid
+      url: http://download.proxmox.com/debian/ceph-squid
       release: bookworm
       components: [no-subscription]
   mirrors:
