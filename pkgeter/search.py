@@ -13,6 +13,11 @@ from pkgeter.context import resolve_backend
 from pkgeter.models import PackageInfo
 from pkgeter.session import get_session_cache, invalidate_session_cache
 
+try:
+    from pkgeter.db.package_cache import PackageCache
+except Exception:  # pragma: no cover - fallback path exercised in run_search
+    PackageCache = None
+
 
 def _search_db(
     package_db: Dict[str, PackageInfo],
@@ -70,10 +75,11 @@ def run_search(argv: list[str]) -> int:
 
     config = Config(args.config)
 
-    # Try session cache first
+    # Try session cache first only when CLI does not override repo selection.
     session = get_session_cache()
     session_hit = False
-    if session is not None:
+    cacheable_request = not any([args.distro, args.arch, args.mirror, args.cn])
+    if session is not None and cacheable_request:
         cached = session.get_or_load(config, force_update=args.force_update)
         if cached is not None:
             ctx, merged_db = cached
@@ -122,13 +128,21 @@ def run_search(argv: list[str]) -> int:
     total = sum(len(db) for _, db in repo_dbs)
     print(f"Found {total} packages across {len(repo_dbs)} repos\n")
 
-    try:
-        from pkgeter.db.package_cache import PackageCache
-        pkg_cache = PackageCache()
-        use_cache_search = True
-    except Exception:
+    if PackageCache is not None:
+        try:
+            pkg_cache = PackageCache()
+            use_cache_search = True
+        except Exception:
+            use_cache_search = False
+            pkg_cache = None
+    else:
         use_cache_search = False
         pkg_cache = None
+
+    source_ids_by_repo = {}
+    if use_cache_search:
+        for repo in repos:
+            source_ids_by_repo[repo.name] = _build_source_ids_for_repo(repo, arch)
 
     for query in args.queries:
         q = query.lower()
@@ -137,7 +151,11 @@ def run_search(argv: list[str]) -> int:
 
         for repo_name, package_db in repo_dbs:
             if use_cache_search and pkg_cache is not None:
-                results = pkg_cache.search(q, search_desc=args.desc)
+                results = pkg_cache.search(
+                    q,
+                    source_ids=source_ids_by_repo.get(repo_name),
+                    search_desc=args.desc,
+                )
             else:
                 results = _search_db(package_db, q, has_wildcards, args.desc)
             if not results:
@@ -159,6 +177,18 @@ def run_search(argv: list[str]) -> int:
             print(f"No matches for '{query}'\n")
 
     return 0
+
+
+def _build_source_ids_for_repo(repo, arch: str) -> list[str]:
+    """Return cache source_id values that belong to one configured repo."""
+    sanitized = repo.url.removeprefix("https://").removeprefix("http://").rstrip("/")
+    if repo.type == "deb":
+        components = repo.components or ["main"]
+        return [
+            ":".join(["deb", sanitized, repo.release, arch, component])
+            for component in components
+        ]
+    return [":".join(["rpm", sanitized, repo.release, repo.arch or arch])]
 
 
 def _format_size(size_bytes: int) -> str:
